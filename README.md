@@ -128,6 +128,9 @@ The repo ships with a GitHub Actions release pipeline that publishes a
 production-ready container image to **GitHub Container Registry (GHCR)** —
 zero secrets to configure, the built-in `GITHUB_TOKEN` is enough.
 
+> **For step-by-step deployment instructions, see [`DEPLOYMENT.md`](./DEPLOYMENT.md).**
+> This section covers the pipeline architecture; the runbook covers the operator-facing actions.
+
 ### Pipeline
 
 | Workflow | File | Trigger | Result |
