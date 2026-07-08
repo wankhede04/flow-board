@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { requireProjectAccess } from '@/lib/permissions';
 import { ApiError, ErrorCodes } from '@/lib/errors';
 import { transitionTicket, computeRankForDrop } from '@/lib/tickets';
+import { notifyTicketMoved } from '@/lib/slack';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const user = await requireUser();
     const ticket = await prisma.ticket.findUnique({
       where: { id: ctx.params.id },
-      select: { projectId: true },
+      select: { projectId: true, statusColumnId: true },
     });
     if (!ticket) throw new ApiError(ErrorCodes.TICKET_NOT_FOUND, 'Ticket not found');
     const access = await requireProjectAccess(user.id, ticket.projectId, 'member');
@@ -53,6 +54,16 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
         | 'viewer'
         | 'guest',
     });
+
+    // Slack fan-out to reporter + assignees (no-op when Slack unconfigured).
+    if (updated.statusColumnId !== ticket.statusColumnId) {
+      await notifyTicketMoved({
+        ticketId: updated.id,
+        actorId: user.id,
+        fromColumnId: ticket.statusColumnId,
+        toColumnId: updated.statusColumnId,
+      });
+    }
 
     return ok({ data: updated });
   } catch (err) {

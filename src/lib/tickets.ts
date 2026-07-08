@@ -13,6 +13,9 @@ import { canBypassWipLimit } from './permissions';
 export type Priority = 'lowest' | 'low' | 'medium' | 'high' | 'urgent';
 export const PRIORITIES: Priority[] = ['lowest', 'low', 'medium', 'high', 'urgent'];
 
+export type TicketContext = 'personal' | 'professional';
+export const TICKET_CONTEXTS: TicketContext[] = ['personal', 'professional'];
+
 interface CreateTicketInput {
   workspaceId: string;
   projectId: string;
@@ -21,6 +24,7 @@ interface CreateTicketInput {
   description?: string;
   statusColumnId: string;
   priority?: Priority;
+  context?: TicketContext;
   assigneeIds?: string[];
   labelIds?: string[];
   dueDate?: Date | null;
@@ -64,6 +68,7 @@ export async function createTicket(input: CreateTicketInput) {
         description: input.description ?? null,
         statusColumnId: input.statusColumnId,
         priority: input.priority ?? 'medium',
+        context: input.context ?? 'professional',
         reporterId: input.reporterId,
         dueDate: input.dueDate ?? null,
         estimate: input.estimate ?? null,
@@ -210,6 +215,7 @@ interface UpdateTicketInput {
     title?: string;
     description?: string | null;
     priority?: Priority;
+    context?: TicketContext;
     dueDate?: Date | null;
     estimate?: number | null;
     assigneeIds?: string[];
@@ -246,6 +252,7 @@ export async function updateTicket(input: UpdateTicketInput) {
     if (input.patch.title !== undefined) data.title = input.patch.title;
     if (input.patch.description !== undefined) data.description = input.patch.description;
     if (input.patch.priority !== undefined) data.priority = input.patch.priority;
+    if (input.patch.context !== undefined) data.context = input.patch.context;
     if (input.patch.dueDate !== undefined) data.dueDate = input.patch.dueDate;
     if (input.patch.estimate !== undefined) data.estimate = input.patch.estimate;
 

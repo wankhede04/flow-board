@@ -84,6 +84,11 @@ cat > .env <<EOF
 JWT_SECRET=$(openssl rand -hex 32)
 FLOWBOARD_IMAGE=ghcr.io/wankhede04/flow-board:0.1.0
 FLOWBOARD_PORT=3000
+APP_BASE_URL=https://flowboard.example.com
+CRON_SECRET=$(openssl rand -hex 32)
+# Optional — fill in after Step 5 (Slack app setup):
+SLACK_SIGNING_SECRET=
+SLACK_BOT_TOKEN=
 EOF
 
 docker compose pull
@@ -170,7 +175,87 @@ mounted EFS volume at `/data`. Health check path: `/api/healthz`.
 
 ---
 
-## Step 5 — Post-deploy verification
+## Step 5 — (Optional) Connect Slack
+
+The Slack integration gives you `/flowboard` slash commands (create tickets,
+move them between columns, list your work, set reminders), interactive
+snooze/done buttons on reminder DMs, and DM notifications when tickets you
+report or own change status. The app is fully functional without it.
+
+1. Go to <https://api.slack.com/apps> → **Create New App → From a manifest**,
+   pick your workspace, and paste (replace the host):
+
+   ```yaml
+   display_information:
+     name: FlowBoard
+     description: Kanban tracker with goals & reminders
+     background_color: "#4f46e5"
+   features:
+     bot_user:
+       display_name: flowboard
+       always_online: true
+     slash_commands:
+       - command: /flowboard
+         url: https://flowboard.example.com/api/v1/slack/commands
+         description: Create and move tickets, list work, set reminders
+         usage_hint: "create <title> | move FB-12 to Done | list | remind in 30m <title>"
+         should_escape: false
+   oauth_config:
+     scopes:
+       bot:
+         - commands
+         - chat:write
+         - im:write
+         - users:read
+         - users:read.email
+   settings:
+     interactivity:
+       is_enabled: true
+       request_url: https://flowboard.example.com/api/v1/slack/interactivity
+     event_subscriptions:
+       request_url: https://flowboard.example.com/api/v1/slack/events
+     org_deploy_enabled: false
+     socket_mode_enabled: false
+   ```
+
+2. **Install to Workspace** and note the **Bot User OAuth Token** (`xoxb-…`).
+3. On **Basic Information**, copy the **Signing Secret**.
+4. Set `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the host `.env`, then
+   `docker compose up -d` to restart with the new env.
+5. Verify the event URL: Slack sends a `url_verification` challenge when you
+   save the Events URL — it turns green when the endpoint answers (the
+   deployment must be reachable over HTTPS first).
+6. In Slack, run `/flowboard help`, then `/flowboard create Try the integration`.
+   User matching is by email: a Slack user maps to the FlowBoard user with the
+   same email address (the mapping is cached on `workspace_members.slack_user_id`).
+
+> **Local testing:** expose port 3000 with `ngrok http 3000` and use the
+> ngrok URL in the manifest (TechSpec §19.2).
+
+---
+
+## Step 6 — Background jobs (reminders & due-date nudges)
+
+Reminders and due-date notifications are delivered by a jobs tick that runs
+one of two ways:
+
+- **In-process scheduler (default)** — `ENABLE_SCHEDULER=true` arms a 60s
+  interval inside the server on boot. Correct for the single-replica
+  docker-compose / `docker run` / K8s (replicas: 1) paths above. No setup.
+- **External cron** — on serverless or multi-replica platforms set
+  `ENABLE_SCHEDULER=false` and call the tick endpoint every minute:
+
+  ```cron
+  * * * * * curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://flowboard.example.com/api/v1/jobs/tick
+  ```
+
+The tick is idempotent — overlapping or duplicate invocations never
+double-notify (reminders leave `pending` on delivery; due-date nudges dedupe
+via the `due_reminders_sent` table).
+
+---
+
+## Step 7 — Post-deploy verification
 
 ```bash
 # 1. Health probes return 200
@@ -183,6 +268,13 @@ curl -fsS -c "$COOKIE" -X POST https://your-host/api/v1/auth/demo-login
 
 # 3. Authenticated read works
 curl -fsS -b "$COOKIE" https://your-host/api/v1/auth/me
+
+# 4. Jobs tick responds (proves CRON_SECRET + scheduler path)
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://your-host/api/v1/jobs/tick
+# → {"data":{"remindersDelivered":0,"dueSoonNotified":0,"overdueNotified":0}}
+
+# 5. If Slack is configured: run `/flowboard help` in Slack — an ephemeral
+#    command list should appear within a second.
 ```
 
 If any step returns non-200, check `docker logs flowboard` (or pod logs)
@@ -191,7 +283,7 @@ logs will show schema application.
 
 ---
 
-## Step 6 — (Optional) Switch to Postgres
+## Step 8 — (Optional) Switch to Postgres
 
 SQLite is fine for a single-host deploy. For multi-replica, HA, or
 backup-friendly storage, switch to Postgres:
@@ -202,10 +294,13 @@ backup-friendly storage, switch to Postgres:
 3. On the host, set `DATABASE_URL=postgresql://user:pass@host:5432/flowboard`
    and remove the `flowboard-data` volume (the entrypoint runs `prisma
    db push` on first boot and creates the schema).
+4. When scaling past one replica, also set `ENABLE_SCHEDULER=false` on all
+   replicas and drive the jobs tick from a single external cron (Step 6) so
+   reminders aren't scanned concurrently.
 
 ---
 
-## Step 7 — Updating to a new release
+## Step 9 — Updating to a new release
 
 ```bash
 # In the repo: cut a new tag.
@@ -225,7 +320,7 @@ work transparently. Destructive migrations require manual planning.
 
 ---
 
-## Step 8 — Backups
+## Step 10 — Backups
 
 SQLite lives in the `flowboard-data` volume at `/data/flowboard.db`. To
 back up:

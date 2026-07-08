@@ -4,7 +4,7 @@ import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { requireProjectAccess } from '@/lib/permissions';
 import { ApiError, ErrorCodes } from '@/lib/errors';
-import { updateTicket, PRIORITIES, type Priority } from '@/lib/tickets';
+import { updateTicket, PRIORITIES, TICKET_CONTEXTS, type Priority, type TicketContext } from '@/lib/tickets';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,10 +41,12 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     return ok({
       data: {
         id: ticket.id,
+        workspaceId: ticket.workspaceId,
         number: ticket.number,
         title: ticket.title,
         description: ticket.description,
         priority: ticket.priority,
+        context: ticket.context,
         statusColumn: ticket.statusColumn,
         dueDate: ticket.dueDate,
         estimate: ticket.estimate,
@@ -94,6 +96,7 @@ const patchSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(50000).nullable().optional(),
   priority: z.enum(PRIORITIES as [string, ...string[]]).optional(),
+  context: z.enum(TICKET_CONTEXTS as [string, ...string[]]).optional(),
   dueDate: z.string().datetime().nullable().optional(),
   estimate: z.number().min(0).max(999).nullable().optional(),
   assigneeIds: z.array(z.string()).max(5).optional(),
@@ -122,6 +125,7 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
         title: body.title,
         description: body.description ?? undefined,
         priority: body.priority as Priority | undefined,
+        context: body.context as TicketContext | undefined,
         dueDate: body.dueDate === undefined ? undefined : body.dueDate ? new Date(body.dueDate) : null,
         estimate: body.estimate ?? undefined,
         assigneeIds: body.assigneeIds,

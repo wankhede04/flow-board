@@ -10,6 +10,7 @@
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
 import { generateNKeysBetween } from 'fractional-indexing';
+import { currentPeriodKeys } from '../src/lib/periods';
 
 const prisma = new PrismaClient();
 
@@ -118,7 +119,13 @@ async function main() {
     ),
   );
 
-  const ticketTitles = [
+  const ticketTitles: Array<{
+    col: number;
+    title: string;
+    priority: string;
+    labels?: string[];
+    context?: 'personal' | 'professional';
+  }> = [
     { col: 0, title: 'Set up monorepo and tooling', priority: 'high', labels: ['infra'] },
     { col: 0, title: 'Spike: evaluate dnd-kit vs alternatives', priority: 'medium', labels: ['spike'] },
     { col: 0, title: 'Define Postgres schema & migrations', priority: 'high', labels: ['infra'] },
@@ -139,6 +146,11 @@ async function main() {
     { col: 3, title: 'Tailwind theme + design tokens', priority: 'low', labels: ['feature'] },
     { col: 3, title: 'Health & readiness endpoints', priority: 'lowest', labels: ['infra'] },
     { col: 3, title: 'Workspace + project scaffolding', priority: 'medium', labels: ['feature'] },
+    // Personal-context tasks — exercised by the board's Personal/Professional filter.
+    { col: 0, title: 'Book dentist appointment', priority: 'medium', context: 'personal' },
+    { col: 0, title: 'Renew passport', priority: 'high', context: 'personal' },
+    { col: 1, title: 'Plan weekend hiking trip', priority: 'low', context: 'personal' },
+    { col: 3, title: 'File tax return', priority: 'urgent', context: 'personal' },
   ];
 
   const ranksPerColumn: Record<string, string[]> = {};
@@ -172,6 +184,7 @@ async function main() {
         description: `Detailed work for **${t.title}**.\n\nSee TechSpec for context.`,
         statusColumnId: col.id,
         priority: t.priority,
+        context: t.context ?? 'professional',
         reporterId: demoUser.id,
         rank,
         dueDate,
@@ -232,7 +245,83 @@ async function main() {
     data: { ticketSeq: seq },
   });
 
-  console.log(`Seeded workspace ${workspace.slug} with ${seq} tickets.`);
+  // --- Goals: one per cadence for the demo user, in the current periods ---
+  const keys = currentPeriodKeys(new Date(), 'America/Los_Angeles');
+  const firstTickets = await prisma.ticket.findMany({
+    where: { projectId, context: 'professional' },
+    orderBy: { number: 'asc' },
+    take: 3,
+    select: { id: true },
+  });
+  const goalDefs = [
+    { cadence: 'daily', title: 'Clear review queue before standup', context: 'professional' },
+    { cadence: 'daily', title: '30 minutes of exercise', context: 'personal' },
+    { cadence: 'weekly', title: 'Ship the board snapshot optimization', context: 'professional', tickets: firstTickets.slice(0, 2) },
+    { cadence: 'weekly', title: 'Cook at home 4 nights', context: 'personal' },
+    { cadence: 'monthly', title: 'Land Slack integration end-to-end', context: 'professional', tickets: firstTickets.slice(2) },
+    { cadence: 'yearly', title: 'Mentor two junior engineers', context: 'professional' },
+    { cadence: 'yearly', title: 'Run a half marathon', context: 'personal' },
+  ] as const;
+  let goalPos = 0;
+  for (const g of goalDefs) {
+    const goalId = id('gol');
+    await prisma.goal.create({
+      data: {
+        id: goalId,
+        workspaceId: wsId,
+        ownerId: demoUser.id,
+        title: g.title,
+        cadence: g.cadence,
+        periodKey: keys[g.cadence],
+        context: g.context,
+        position: goalPos++,
+      },
+    });
+    if ('tickets' in g && g.tickets?.length) {
+      await prisma.goalTicket.createMany({
+        data: g.tickets.map((t) => ({ goalId, ticketId: t.id })),
+      });
+    }
+  }
+
+  // --- Reminders: one due imminently (scheduler demo), two planned ahead ---
+  const anyTicket = await prisma.ticket.findFirst({
+    where: { projectId },
+    orderBy: { number: 'asc' },
+    select: { id: true },
+  });
+  const inMinutes = (m: number) => new Date(Date.now() + m * 60_000);
+  await prisma.reminder.createMany({
+    data: [
+      {
+        id: id('rem'),
+        workspaceId: wsId,
+        userId: demoUser.id,
+        title: 'Prep notes for standup',
+        remindAt: inMinutes(2),
+      },
+      {
+        id: id('rem'),
+        workspaceId: wsId,
+        userId: demoUser.id,
+        title: 'Review open PRs',
+        notes: 'Check the FlowBoard MVP review column first.',
+        ticketId: anyTicket?.id ?? null,
+        remindAt: inMinutes(120),
+        recurrence: 'daily',
+      },
+      {
+        id: id('rem'),
+        workspaceId: wsId,
+        userId: demoUser.id,
+        title: 'Weekly planning session',
+        remindAt: inMinutes(60 * 24),
+        recurrence: 'weekly',
+      },
+    ],
+  });
+
+  console.log(`Seeded workspace ${workspace.slug} with ${seq} tickets, ${goalDefs.length} goals, 3 reminders.`);
   console.log(`Sign in as: ${seedEmail}`);
 }
 

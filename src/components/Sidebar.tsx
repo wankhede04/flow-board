@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/cn';
+import { NotificationBell } from './NotificationBell';
 
 interface SidebarProps {
   workspace: { id: string; name: string };
@@ -29,6 +30,31 @@ export function Sidebar({ workspace, projects, user }: SidebarProps) {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
+        <ul className="mb-3 space-y-0.5">
+          {[
+            { href: `/workspace/${workspace.id}/goals`, icon: '🎯', label: 'Goals' },
+            { href: `/workspace/${workspace.id}/planner`, icon: '⏰', label: 'Planner' },
+          ].map((item) => {
+            const active = pathname?.startsWith(item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm',
+                    active
+                      ? 'bg-accent/15 text-text-primary'
+                      : 'text-text-secondary hover:bg-bg-raised hover:text-text-primary',
+                  )}
+                >
+                  <span aria-hidden>{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
         <div className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
           Projects
         </div>
@@ -63,6 +89,9 @@ export function Sidebar({ workspace, projects, user }: SidebarProps) {
       </nav>
 
       <div className="border-t border-bg-border p-3">
+        <div className="mb-2">
+          <NotificationBell />
+        </div>
         <div className="mb-2 text-xs">
           <div className="font-medium text-text-primary">{user.name}</div>
           <div className="truncate text-text-muted">{user.email}</div>

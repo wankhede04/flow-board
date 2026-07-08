@@ -14,6 +14,10 @@ export type IdPrefix =
   | 'cmt'
   | 'evt'
   | 'att'
+  | 'gol' // goal
+  | 'rem' // reminder
+  | 'ntf' // notification
+  | 'slk' // slack workspace link
   | 'scl'; // slack channel link
 
 export function newId(prefix: IdPrefix): string {

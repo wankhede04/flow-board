@@ -1,10 +1,26 @@
 # FlowBoard
 
-A working implementation of the FlowBoard Kanban tracker described in
-[`TechSpec.md`](./TechSpec.md). This build delivers Phases 1–4 of the spec —
-the core flow board: workspaces, projects, columns with WIP limits, tickets
-with optimistic locking, comments, an activity log, and drag-and-drop board
-UI with optimistic UI + rollback.
+A production-ready task tracker for organising daily work and priorities —
+a working implementation of the FlowBoard Kanban tracker described in
+[`TechSpec.md`](./TechSpec.md), extended into a personal + professional
+planning tool:
+
+- **Kanban board** — workspaces, projects, columns with WIP limits, tickets
+  with optimistic locking, comments, activity log, drag-and-drop with
+  optimistic UI + rollback (TechSpec Phases 1–4).
+- **Goals** — daily, weekly, monthly and yearly goals with period navigation
+  (‹ prev / next ›), personal/professional contexts, check-off, and progress
+  derived from linked tickets.
+- **Planner & reminders** — set-time reminders (one-off or daily/weekly/
+  monthly recurring), fully plannable and manually adjustable: reschedule to
+  any time, snooze +15m/+1h/+1d, mark done. Delivered as in-app notifications
+  and Slack DMs. Due-soon/overdue ticket nudges included.
+- **Personal & professional tasks** — every ticket carries a context; the
+  board, create modal, drawer and goals all filter on it.
+- **Slack integration** — `/flowboard` slash commands create tickets, move
+  them between columns, list your work, and set reminders; reminder DMs have
+  interactive Snooze/Done buttons; ticket moves DM the reporter + assignees.
+  Signed webhooks (HMAC, replay-window) per TechSpec §9.5.
 
 ## Quick start
 
@@ -37,7 +53,10 @@ workspace and can open the seeded *FlowBoard MVP* project.
 | §11 Web client — board, drawer, filters, create modal | Done |
 | §11.3 Drag-and-drop with `@dnd-kit/core` | Done — optimistic UI + rollback on failure |
 | §11.5 Accessibility — keyboard DnD, focus rings, escape closes drawer | Basic |
-| §18 Tests — happy path, version conflict, WIP limit, admin bypass, activity log | Done — 15 vitest tests, hermetic SQLite |
+| §9 Slack — slash commands, interactivity, events handshake, signature verification | Done — single-service adaptation (see below) |
+| §10.5 Due-date reminders with dedupe table | Done — plus user-set reminders with recurrence & snooze |
+| §18 Tests — happy path, version conflict, WIP limit, admin bypass, activity log | Done — 55 vitest tests, hermetic SQLite |
+| Goals (daily/weekly/monthly/yearly) & personal/professional contexts | Done — extension beyond the original spec |
 
 ## Deviations from the TechSpec
 
@@ -52,8 +71,8 @@ model or API contract.
 | --- | --- | --- |
 | Postgres 16 | SQLite (file) | Zero-setup for local dev. Schema is portable: switch `provider = "postgresql"` in `prisma/schema.prisma` and run `db push` against a Postgres URL. |
 | NestJS api-gateway + core-service | Next.js Route Handlers under `src/app/api/v1/...` | Same URL paths, same DTOs, same error envelope. Lift-and-shift to NestJS controllers when needed. |
-| Notification service (Go), Kafka | Not implemented | Phase 6 of the spec. The activity log table is in place; a consumer can be added later. |
-| Slack connector (Go) | Not implemented | Phase 5 of the spec. `slack_workspace_tokens`, `slack_channel_links`, signing-secret env var, and `slack_message_ts` field on `comments` are reserved. |
+| Notification service (Go), Kafka | In-process: `notifications` table + polling bell UI + Slack DMs, driven by a 60s scheduler tick (`src/lib/jobs.ts`) | Same routing semantics without the Kafka hop; lift into a consumer when an event bus is introduced. |
+| Slack connector (Go) | Next.js route handlers (`/api/v1/slack/*`) with §9.5 signature verification | Same webhook contract; commands execute in-process against the same service layer. OAuth install flow deferred — single-tenant env-token binding instead (`SLACK_BOT_TOKEN`). |
 | WebSocket realtime | Polling fallback (TanStack Query refetches every 15s) | Same client-visible behavior at higher latency. Add a Redis-backed WS gateway when introduced. |
 | NextAuth + JWT + magic link | Demo cookie session (`fb_user_id`) | Auth scaffolding is centralized in `src/lib/auth.ts` — swap in NextAuth without touching call sites. |
 | OpenTelemetry, Pino, Prometheus | `console.error` for unhandled errors only | Drop-in via the shared logger seam in `src/lib/api.ts`. |
@@ -77,15 +96,21 @@ src/
 │   ├── workspace/[wid]/
 │   │   ├── layout.tsx          # auth guard + sidebar
 │   │   ├── page.tsx            # project list
+│   │   ├── goals/page.tsx      # daily/weekly/monthly/yearly goals
+│   │   ├── planner/page.tsx    # reminders — plan, snooze, reschedule
 │   │   └── projects/[pid]/page.tsx
 │   ├── globals.css
 │   ├── layout.tsx
 │   └── page.tsx                # landing + demo login
 ├── components/
 │   ├── board/                  # Board, Column, TicketCard, Drawer, Filters, Modal
+│   ├── goals/GoalsClient.tsx   # cadence tabs, period nav, progress bars
+│   ├── planner/PlannerClient.tsx # reminder list, snooze, reschedule
 │   ├── providers/QueryProvider.tsx
 │   ├── DemoLoginButton.tsx
+│   ├── NotificationBell.tsx    # unread badge + dropdown (polls /notifications)
 │   └── Sidebar.tsx
+├── instrumentation.ts          # arms the in-process job scheduler on boot
 └── lib/
     ├── activity.ts             # activity_events writes (§7.5)
     ├── api.ts                  # JSON envelope, request IDs, zod parsing (§4.2)
@@ -94,10 +119,33 @@ src/
     ├── db.ts                   # Prisma singleton
     ├── errors.ts               # ApiError + status mapping (§4.2)
     ├── fractional-index.ts     # rank helpers (§5.4)
+    ├── goals.ts                # goal CRUD + linked-ticket progress
     ├── ids.ts                  # ULID-prefixed IDs (§4.1)
+    ├── jobs.ts                 # jobs tick: reminders + due-date scans (§10.5)
+    ├── notifications.ts        # in-app notification writes/reads
+    ├── periods.ts              # daily/weekly/monthly/yearly period keys (isomorphic)
     ├── permissions.ts          # PermissionService (§7.4)
+    ├── reminders.ts            # reminder lifecycle: deliver, snooze, recur
+    ├── slack.ts                # §9.5 signatures, command grammar, Web API client
+    ├── slack-commands.ts       # /flowboard command execution
     └── tickets.ts              # createTicket, transitionTicket, updateTicket
 ```
+
+## Slack usage
+
+Once connected (see [`DEPLOYMENT.md`](./DEPLOYMENT.md) Step 5):
+
+```
+/flowboard create Fix login bug in FB p:high due:2026-08-01   # create a ticket
+/flowboard create Book dentist ctx:personal                   # personal task
+/flowboard move FB-12 to Done                                 # move a ticket
+/flowboard list                                               # your open tickets
+/flowboard remind in 30m Review the release PR                # set a reminder
+/flowboard help
+```
+
+Reminder DMs arrive with **Snooze 15m / Snooze 1h / Done** buttons; moving a
+ticket (from the web or Slack) DMs the reporter and assignees.
 
 ## Scripts
 
@@ -114,13 +162,20 @@ pnpm db:reset     # wipe + reseed
 
 ## Tests
 
-`vitest` runs:
+`vitest` runs 55 tests:
 
 - `src/lib/fractional-index.spec.ts` — 8 unit tests for the rank helper
 - `src/lib/tickets.spec.ts` — 7 integration tests against a hermetic SQLite
   DB created via `prisma db push`. Covers creation, transition, WIP-limit
   rejection, admin bypass, version conflict (TechSpec §18.2's required
   scenarios for the ticket flow), and activity-log emission.
+- `src/lib/periods.spec.ts` — 12 unit tests: period keys across timezones,
+  ISO-week year boundaries, shifting, validation.
+- `src/lib/slack.spec.ts` — 17 unit tests: HMAC signature verification
+  (tamper, replay window, missing headers) and the `/flowboard` grammar.
+- `src/lib/goals-reminders.spec.ts` — 11 integration tests: goal CRUD +
+  linked-ticket progress, reminder deliver/snooze/recurrence/reschedule,
+  due-date scan dedupe.
 
 ## Deployment
 
@@ -177,6 +232,11 @@ The image:
 | --- | --- |
 | `DATABASE_URL` | Defaults to `file:/data/flowboard.db`. Switch to a Postgres URL and update `provider` in `prisma/schema.prisma` for multi-replica deploys. |
 | `JWT_SECRET` | Required in production. Use `openssl rand -hex 32`. |
+| `APP_BASE_URL` | Public URL of the deployment — used in Slack replies and notification links. |
+| `SLACK_SIGNING_SECRET` | Enables the `/flowboard` command + interactivity + events endpoints (optional). |
+| `SLACK_BOT_TOKEN` | `xoxb-` token for outbound DMs — reminders and ticket-move notifications (optional). |
+| `ENABLE_SCHEDULER` | Default `true`: in-process 60s jobs tick. Set `false` on multi-replica/serverless and use external cron. |
+| `CRON_SECRET` | Bearer secret for `POST /api/v1/jobs/tick` (external cron mode). |
 
 ### Cutting a release
 
@@ -221,6 +281,26 @@ curl -X POST http://localhost:3000/api/v1/tickets/<ticketId>/transitions \
   -H "If-Match: 1" \
   --cookie "fb_user_id=<id>" \
   -d '{"targetColumnId":"<colId>","targetIndex":0}'
+
+# Goals for the current week
+curl --cookie "fb_user_id=<id>" \
+  "http://localhost:3000/api/v1/workspaces/<wid>/goals?cadence=weekly&period=2026-W28"
+
+# Create a goal
+curl -X POST "http://localhost:3000/api/v1/workspaces/<wid>/goals" \
+  -H "Content-Type: application/json" --cookie "fb_user_id=<id>" \
+  -d '{"title":"Ship the release","cadence":"weekly","context":"professional"}'
+
+# Set a reminder (ISO time; adjust later with PATCH {"remindAt": ...} or {"snoozeMinutes": 15})
+curl -X POST "http://localhost:3000/api/v1/workspaces/<wid>/reminders" \
+  -H "Content-Type: application/json" --cookie "fb_user_id=<id>" \
+  -d '{"title":"Prep standup","remindAt":"2026-07-09T08:45:00.000Z","recurrence":"daily"}'
+
+# Unread notifications
+curl --cookie "fb_user_id=<id>" "http://localhost:3000/api/v1/notifications?unread=true"
+
+# Run the jobs tick manually (external-cron mode)
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/v1/jobs/tick
 ```
 
 Errors follow the spec's envelope:

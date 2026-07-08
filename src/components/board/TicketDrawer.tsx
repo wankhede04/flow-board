@@ -9,10 +9,12 @@ import type { LabelDef, Member, Priority } from './types';
 
 interface TicketDetail {
   id: string;
+  workspaceId: string;
   number: number;
   title: string;
   description: string | null;
   priority: Priority;
+  context: 'personal' | 'professional';
   statusColumn: { id: string; name: string };
   dueDate: string | null;
   estimate: number | null;
@@ -400,6 +402,18 @@ function DrawerContents({
           </div>
 
           <div>
+            <h3 className="label">Context</h3>
+            <select
+              className="input py-1 text-xs"
+              value={ticket.context}
+              onChange={(e) => patch({ context: e.target.value })}
+            >
+              <option value="professional">Professional</option>
+              <option value="personal">Personal</option>
+            </select>
+          </div>
+
+          <div>
             <h3 className="label">Due date</h3>
             <input
               type="date"
@@ -437,6 +451,8 @@ function DrawerContents({
             </div>
           </div>
 
+          <ReminderQuickSet ticket={ticket} />
+
           <div>
             <h3 className="label">Created</h3>
             <p className="text-xs text-text-secondary">
@@ -446,6 +462,56 @@ function DrawerContents({
         </aside>
       </div>
     </>
+  );
+}
+
+/** Quick "remind me about this ticket" — creates a Reminder linked to the ticket. */
+function ReminderQuickSet({ ticket }: { ticket: TicketDetail }) {
+  const [at, setAt] = useState('');
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  const save = async () => {
+    if (!at) return;
+    setState('saving');
+    try {
+      const res = await fetch(`/api/v1/workspaces/${ticket.workspaceId}/reminders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `${ticket.project.key}-${ticket.number}: ${ticket.title}`.slice(0, 200),
+          ticketId: ticket.id,
+          remindAt: new Date(at).toISOString(),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setState('saved');
+      setAt('');
+      setTimeout(() => setState('idle'), 2500);
+    } catch {
+      setState('error');
+    }
+  };
+
+  return (
+    <div>
+      <h3 className="label">Remind me</h3>
+      <input
+        type="datetime-local"
+        className="input py-1 text-xs"
+        value={at}
+        onChange={(e) => setAt(e.target.value)}
+      />
+      <button
+        className="btn btn-secondary mt-2 w-full text-xs"
+        onClick={save}
+        disabled={!at || state === 'saving'}
+      >
+        {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Reminder set' : 'Set reminder'}
+      </button>
+      {state === 'error' ? (
+        <p className="mt-1 text-xs text-priority-urgent">Could not set reminder.</p>
+      ) : null}
+    </div>
   );
 }
 

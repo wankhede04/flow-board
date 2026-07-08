@@ -14,6 +14,14 @@ services:
     environment:
       DATABASE_URL: file:/data/flowboard.db
       JWT_SECRET: ${JWT_SECRET:-please-change-me}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # Slack integration — leave empty to run without Slack.
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      # In-process reminder scheduler (single replica). For multi-replica,
+      # set ENABLE_SCHEDULER=false and cron POST /api/v1/jobs/tick instead.
+      ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
+      CRON_SECRET: ${CRON_SECRET:-}
     ports:
       - "${FLOWBOARD_PORT:-3000}:3000"
     volumes:
