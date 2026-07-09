@@ -86,6 +86,7 @@ export async function getBoardSnapshot(projectId: string) {
         number: t.number,
         title: t.title,
         priority: t.priority,
+        context: t.context,
         statusColumnId: t.statusColumnId,
         dueDate: t.dueDate,
         rank: t.rank,

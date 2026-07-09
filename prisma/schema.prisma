@@ -27,9 +27,12 @@ model Workspace {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  members  WorkspaceMember[]
-  projects Project[]
-  tickets  Ticket[]
+  members   WorkspaceMember[]
+  projects  Project[]
+  tickets   Ticket[]
+  goals     Goal[]
+  reminders Reminder[]
+  slackLink SlackWorkspaceLink?
 }
 
 model User {
@@ -41,14 +44,17 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  workspaces        WorkspaceMember[]
-  projectMembers    ProjectMember[]
-  reportedTickets   Ticket[]          @relation("ReportedTickets")
-  ticketAssignees   TicketAssignee[]
-  ticketWatchers    TicketWatcher[]
-  comments          Comment[]
-  activityEvents    ActivityEvent[]
-  attachments       Attachment[]
+  workspaces      WorkspaceMember[]
+  projectMembers  ProjectMember[]
+  reportedTickets Ticket[]          @relation("ReportedTickets")
+  ticketAssignees TicketAssignee[]
+  ticketWatchers  TicketWatcher[]
+  comments        Comment[]
+  activityEvents  ActivityEvent[]
+  attachments     Attachment[]
+  goals           Goal[]
+  reminders       Reminder[]
+  notifications   Notification[]
 }
 
 model WorkspaceMember {
@@ -69,16 +75,16 @@ model WorkspaceMember {
 // --- Projects -----------------------------------------------------------
 
 model Project {
-  id           String   @id // prj_<ulid>
+  id           String    @id // prj_<ulid>
   workspaceId  String
   key          String // e.g. 'FB' for ticket prefix
   name         String
   description  String?
-  estimateUnit String   @default("points") // points|hours
-  ticketSeq    Int      @default(0)
+  estimateUnit String    @default("points") // points|hours
+  ticketSeq    Int       @default(0)
   archivedAt   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members   ProjectMember[]
@@ -119,14 +125,15 @@ model WorkflowColumn {
 // --- Tickets ------------------------------------------------------------
 
 model Ticket {
-  id             String   @id // tkt_<ulid>
+  id             String    @id // tkt_<ulid>
   workspaceId    String
   projectId      String
   number         Int
   title          String
   description    String? // Markdown
   statusColumnId String
-  priority       String   @default("medium") // lowest|low|medium|high|urgent
+  priority       String    @default("medium") // lowest|low|medium|high|urgent
+  context        String    @default("professional") // personal|professional
   reporterId     String
   dueDate        DateTime?
   startDate      DateTime?
@@ -134,9 +141,9 @@ model Ticket {
   epicId         String?
   rank           String // fractional index for board ordering
   archivedAt     DateTime?
-  version        Int      @default(1) // optimistic locking
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  version        Int       @default(1) // optimistic locking
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -150,11 +157,14 @@ model Ticket {
   comments       Comment[]
   activityEvents ActivityEvent[]
   attachments    Attachment[]
+  goals          GoalTicket[]
+  reminders      Reminder[]
 
   @@unique([projectId, number])
   @@index([projectId, statusColumnId])
   @@index([workspaceId])
   @@index([dueDate])
+  @@index([workspaceId, context])
 }
 
 model TicketAssignee {
@@ -178,7 +188,7 @@ model TicketWatcher {
 }
 
 model Label {
-  id        String  @id // lbl_<ulid>
+  id        String @id // lbl_<ulid>
   projectId String
   name      String
   color     String // hex
@@ -231,6 +241,121 @@ model ActivityEvent {
   actor  User?  @relation(fields: [actorId], references: [id])
 
   @@index([ticketId, createdAt])
+}
+
+// --- Goals ----------------------------------------------------------------
+//
+// A goal is a per-user objective scoped to a cadence period: daily, weekly,
+// monthly or yearly. `periodKey` is a canonical string for the period the
+// goal belongs to (see src/lib/periods.ts):
+//   daily   → 2026-07-08        weekly → 2026-W28
+//   monthly → 2026-07           yearly → 2026
+// Goals may link tickets; progress is derived from linked-ticket completion
+// plus the goal's own done flag.
+
+model Goal {
+  id          String    @id // gol_<ulid>
+  workspaceId String
+  ownerId     String
+  title       String
+  notes       String?
+  cadence     String // daily|weekly|monthly|yearly
+  periodKey   String
+  context     String    @default("professional") // personal|professional
+  status      String    @default("active") // active|completed|dropped
+  completedAt DateTime?
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner     User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tickets   GoalTicket[]
+
+  @@index([workspaceId, ownerId, cadence, periodKey])
+}
+
+model GoalTicket {
+  goalId   String
+  ticketId String
+  addedAt  DateTime @default(now())
+
+  goal   Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, ticketId])
+}
+
+// --- Reminders & notifications ---------------------------------------------
+//
+// A reminder fires at `remindAt` (UTC). The scheduler (src/lib/jobs.ts) scans
+// for pending reminders past their fire time, creates an in-app Notification,
+// and DMs the user on Slack when the workspace is connected. Reminders are
+// manually adjustable: PATCH updates remindAt; snooze pushes it forward.
+
+model Reminder {
+  id          String    @id // rem_<ulid>
+  workspaceId String
+  userId      String
+  ticketId    String? // optional link to a ticket
+  title       String
+  notes       String?
+  remindAt    DateTime
+  recurrence  String    @default("none") // none|daily|weekly|monthly
+  status      String    @default("pending") // pending|sent|done|cancelled
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticket    Ticket?   @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@index([status, remindAt])
+  @@index([workspaceId, userId, remindAt])
+}
+
+model Notification {
+  id        String    @id // ntf_<ulid>
+  userId    String
+  type      String // reminder_due|ticket_due_soon|ticket_overdue|assigned|slack
+  title     String
+  body      String?
+  linkUrl   String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+// Dedupe table for due-date reminders (TechSpec §10.5): one row per
+// (ticket, kind) so the scheduler never re-notifies.
+model DueReminderSent {
+  ticketId String
+  kind     String // due_soon|overdue
+  sentAt   DateTime @default(now())
+
+  @@id([ticketId, kind])
+}
+
+// --- Slack integration ------------------------------------------------------
+//
+// One Slack workspace per FlowBoard workspace. The bot token is provided via
+// env (single-tenant self-hosted) or stored here after OAuth (multi-tenant).
+
+model SlackWorkspaceLink {
+  id               String   @id // slk_<ulid>
+  workspaceId      String   @unique
+  slackTeamId      String   @unique
+  slackTeamName    String?
+  botToken         String? // encrypted at rest in multi-tenant deploys; env fallback
+  botUserId        String?
+  defaultProjectId String?
+  installedAt      DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Attachment {

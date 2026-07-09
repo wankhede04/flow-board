@@ -13,6 +13,7 @@ export function CreateTicketModal({ projectId, columnId, onClose, onCreated }: P
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('medium');
+  const [context, setContext] = useState('professional');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +33,7 @@ export function CreateTicketModal({ projectId, columnId, onClose, onCreated }: P
           description: description.trim() || undefined,
           statusColumnId: columnId,
           priority,
+          context,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -91,6 +93,17 @@ export function CreateTicketModal({ projectId, columnId, onClose, onCreated }: P
               <option value="medium">Medium</option>
               <option value="low">Low</option>
               <option value="lowest">Lowest</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Context</label>
+            <select
+              className="input"
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+            >
+              <option value="professional">Professional</option>
+              <option value="personal">Personal</option>
             </select>
           </div>
         </div>

@@ -8,6 +8,8 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+    // Arms the in-process reminder scheduler on boot (src/instrumentation.ts).
+    instrumentationHook: true,
   },
 };
 

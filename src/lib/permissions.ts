@@ -55,6 +55,24 @@ export async function requireProjectAccess(
   return access;
 }
 
+export async function requireWorkspaceMember(
+  userId: string,
+  workspaceId: string,
+  minimum: 'viewer' | 'member' | 'admin' = 'member',
+) {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true },
+  });
+  if (!member) {
+    throw new ApiError(ErrorCodes.WORKSPACE_NOT_FOUND, 'Workspace not found');
+  }
+  if (!roleSatisfies(member.role as Role, minimum)) {
+    throw new ApiError(ErrorCodes.FORBIDDEN, `Requires ${minimum} access`);
+  }
+  return member;
+}
+
 export function canBypassWipLimit(role: Role | undefined): boolean {
   return role === 'admin';
 }

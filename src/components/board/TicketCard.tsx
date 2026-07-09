@@ -52,8 +52,16 @@ export function TicketCard({ ticket, projectKey, onOpen, isDragOverlay }: Props)
       aria-label={`Open ${projectKey}-${ticket.number}: ${ticket.title}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="font-mono text-[10px] text-text-muted">
+        <span className="flex items-center gap-1.5 font-mono text-[10px] text-text-muted">
           {projectKey}-{ticket.number}
+          {ticket.context === 'personal' ? (
+            <span
+              title="Personal task"
+              className="rounded-full bg-teal-500/15 px-1.5 py-px font-sans text-[9px] font-medium text-teal-400"
+            >
+              personal
+            </span>
+          ) : null}
         </span>
         <PriorityBadge priority={ticket.priority as Priority} />
       </div>

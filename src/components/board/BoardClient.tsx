@@ -43,7 +43,7 @@ export function BoardClient({ initialBoard, members, labels, currentUserId }: Pr
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   const [createInColumn, setCreateInColumn] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Filters>({ assignee: null, priority: null, label: null, q: '' });
+  const [filters, setFilters] = useState<Filters>({ assignee: null, priority: null, label: null, context: null, q: '' });
   const [moveError, setMoveError] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -267,7 +267,8 @@ export function BoardClient({ initialBoard, members, labels, currentUserId }: Pr
 }
 
 function applyFilters(board: BoardSnapshot, filters: Filters): BoardSnapshot {
-  if (!filters.assignee && !filters.priority && !filters.label && !filters.q) return board;
+  if (!filters.assignee && !filters.priority && !filters.label && !filters.context && !filters.q)
+    return board;
   const q = filters.q.trim().toLowerCase();
   return {
     ...board,
@@ -277,6 +278,7 @@ function applyFilters(board: BoardSnapshot, filters: Filters): BoardSnapshot {
         if (filters.assignee && !t.assignees.some((a) => a.id === filters.assignee)) return false;
         if (filters.priority && t.priority !== filters.priority) return false;
         if (filters.label && !t.labels.some((l) => l.id === filters.label)) return false;
+        if (filters.context && t.context !== filters.context) return false;
         if (q && !t.title.toLowerCase().includes(q)) return false;
         return true;
       }),
