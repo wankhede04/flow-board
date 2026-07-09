@@ -10,6 +10,7 @@ import { ok, fail } from '@/lib/api';
 import { prisma } from '@/lib/db';
 import { ApiError, ErrorCodes } from '@/lib/errors';
 import { SESSION_COOKIE } from '@/lib/auth';
+import { bootstrapFirstUser } from '@/lib/bootstrap';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,11 +18,15 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as { email?: string };
     const email = body.email ?? process.env.SEED_USER_EMAIL ?? 'demo@flowboard.app';
-    const user = await prisma.user.findUnique({ where: { email } });
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // Fresh deploy (empty DB): provision the demo user + starter workspace.
+      user = await bootstrapFirstUser(email, process.env.SEED_USER_NAME ?? 'Demo User');
+    }
     if (!user) {
       throw new ApiError(
         ErrorCodes.NOT_FOUND,
-        `No demo user found for ${email}. Run \`pnpm db:seed\`.`,
+        `No user found for ${email}. Locally, run \`pnpm db:seed\`.`,
       );
     }
     cookies().set(SESSION_COOKIE, user.id, {

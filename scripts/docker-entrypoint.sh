@@ -15,7 +15,9 @@ echo "[entrypoint] applying schema (prisma db push)..."
 prisma db push --skip-generate --accept-data-loss=false
 
 if [ "${SEED_ON_BOOT:-0}" = "1" ]; then
-  echo "[entrypoint] SEED_ON_BOOT=1 — seed script not bundled in runtime image; skipping"
+  echo "[entrypoint] SEED_ON_BOOT=1 — seed script not bundled in runtime image; skipping."
+  echo "[entrypoint] Note: on an empty database, the first demo-login bootstraps the"
+  echo "[entrypoint] demo user and a starter workspace automatically."
 fi
 
 echo "[entrypoint] starting: $*"
