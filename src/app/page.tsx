@@ -32,8 +32,9 @@ export default async function HomePage() {
           <div>
             <h2 className="text-sm font-semibold text-text-primary">Demo access</h2>
             <p className="mt-1 text-xs text-text-secondary">
-              This deployment uses a demo seed user. Slack OAuth (Phase 5 of the spec)
-              is not wired up — sign in below to land on a pre-populated board.
+              Sign in below. On a fresh deployment the first sign-in creates the demo
+              user and a starter workspace automatically; local dev can also seed a
+              full sample board with <code className="rounded bg-bg-surface px-1">pnpm db:seed</code>.
             </p>
           </div>
           <DemoLoginButton />

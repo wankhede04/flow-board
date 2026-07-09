@@ -262,7 +262,9 @@ via the `due_reminders_sent` table).
 curl -fsS https://your-host/api/healthz   # {"status":"ok"}
 curl -fsS https://your-host/api/readyz    # {"status":"ready","checks":{"db":"ok"}}
 
-# 2. Demo login works (sanity check the session + DB write path)
+# 2. Demo login works (sanity check the session + DB write path).
+#    On a fresh (empty) database this first call also bootstraps the demo
+#    user and a starter workspace/project automatically.
 COOKIE=$(mktemp)
 curl -fsS -c "$COOKIE" -X POST https://your-host/api/v1/auth/demo-login
 
