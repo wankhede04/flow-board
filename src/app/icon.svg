@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- FlowBoard favicon: lightning bolt on the brand indigo tile.
+       Served automatically by the Next.js App Router as /icon.svg. -->
+  <rect width="64" height="64" rx="14" fill="#1e1b4b"/>
+  <rect width="64" height="64" rx="14" fill="#6366f1" fill-opacity="0.25"/>
+  <path d="M36.5 8 18 36.5h11L27.5 56 46 27.5H35L36.5 8Z" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>

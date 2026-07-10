@@ -234,6 +234,37 @@ report or own change status. The app is fully functional without it.
 
 ---
 
+## Step 5b — (Optional) Google / GitHub sign-in
+
+Demo login always works; social sign-in adds real accounts. Buttons appear
+on the login page automatically for whichever providers are configured.
+
+**Google** (Google Cloud Console → APIs & Services → Credentials):
+
+1. Create an **OAuth client ID** of type *Web application*.
+2. Authorized redirect URI: `https://flowboard.example.com/api/v1/auth/oauth/google/callback`
+3. Copy the client ID/secret into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+
+**GitHub** (Settings → Developer settings → OAuth Apps → New OAuth App):
+
+1. Homepage URL: `https://flowboard.example.com`
+2. Authorization callback URL: `https://flowboard.example.com/api/v1/auth/oauth/github/callback`
+3. Copy the client ID and a generated secret into `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`.
+
+Then `docker compose up -d` to restart with the new env.
+
+Account policy:
+
+- Users are matched by **verified email**. An existing user (e.g. created
+  via Slack or demo seed) signs straight in.
+- A brand-new user gets their **own starter workspace** — they never
+  silently join someone else's.
+- To keep the instance private, set
+  `AUTH_ALLOWED_EMAIL_DOMAINS=yourcompany.com` — new sign-ups outside those
+  domains are rejected (existing users are unaffected).
+
+---
+
 ## Step 6 — Background jobs (reminders & due-date nudges)
 
 Reminders and due-date notifications are delivered by a jobs tick that runs

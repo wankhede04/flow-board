@@ -74,7 +74,7 @@ model or API contract.
 | Notification service (Go), Kafka | In-process: `notifications` table + polling bell UI + Slack DMs, driven by a 60s scheduler tick (`src/lib/jobs.ts`) | Same routing semantics without the Kafka hop; lift into a consumer when an event bus is introduced. |
 | Slack connector (Go) | Next.js route handlers (`/api/v1/slack/*`) with §9.5 signature verification | Same webhook contract; commands execute in-process against the same service layer. OAuth install flow deferred — single-tenant env-token binding instead (`SLACK_BOT_TOKEN`). |
 | WebSocket realtime | Polling fallback (TanStack Query refetches every 15s) | Same client-visible behavior at higher latency. Add a Redis-backed WS gateway when introduced. |
-| NextAuth + JWT + magic link | Demo cookie session (`fb_user_id`) | Auth scaffolding is centralized in `src/lib/auth.ts` — swap in NextAuth without touching call sites. |
+| NextAuth + JWT + magic link | Cookie session (`fb_user_id`) with demo login + Google/GitHub OAuth (authorization-code flow in `src/lib/oauth.ts`, no extra deps) | Session resolution is centralized in `src/lib/auth.ts` — swap in NextAuth/JWT without touching call sites. Magic-link email deferred. |
 | OpenTelemetry, Pino, Prometheus | `console.error` for unhandled errors only | Drop-in via the shared logger seam in `src/lib/api.ts`. |
 | Helm charts, Terraform, ECR, EKS, multi-env CD | A single CI workflow (lint, typecheck, test, build) | The CD layer in §23 of the spec is fully separable; CI gates are in place to support it. |
 
@@ -232,7 +232,10 @@ The image:
 | --- | --- |
 | `DATABASE_URL` | Defaults to `file:/data/flowboard.db`. Switch to a Postgres URL and update `provider` in `prisma/schema.prisma` for multi-replica deploys. |
 | `JWT_SECRET` | Required in production. Use `openssl rand -hex 32`. |
-| `APP_BASE_URL` | Public URL of the deployment — used in Slack replies and notification links. |
+| `APP_BASE_URL` | Public URL of the deployment — used in Slack replies, notification links, and OAuth redirect URIs. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables "Continue with Google" (optional). Redirect URI: `$APP_BASE_URL/api/v1/auth/oauth/google/callback`. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Enables "Continue with GitHub" (optional). Redirect URI: `$APP_BASE_URL/api/v1/auth/oauth/github/callback`. |
+| `AUTH_ALLOWED_EMAIL_DOMAINS` | Comma-separated domains allowed to **sign up** via OAuth (existing users always sign in). Empty = open sign-up. |
 | `SLACK_SIGNING_SECRET` | Enables the `/flowboard` command + interactivity + events endpoints (optional). |
 | `SLACK_BOT_TOKEN` | `xoxb-` token for outbound DMs — reminders and ticket-move notifications (optional). |
 | `ENABLE_SCHEDULER` | Default `true`: in-process 60s jobs tick. Set `false` on multi-replica/serverless and use external cron. |
