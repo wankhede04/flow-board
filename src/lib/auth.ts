@@ -14,6 +14,14 @@ import { ApiError, ErrorCodes } from './errors';
 
 export const SESSION_COOKIE = 'fb_user_id';
 
+/**
+ * Demo login is a local-dev convenience, off by default. Production
+ * sign-in is Google/GitHub OAuth (src/lib/oauth.ts).
+ */
+export function demoLoginEnabled(): boolean {
+  return process.env.ALLOW_DEMO_LOGIN === 'true';
+}
+
 export async function getCurrentUser() {
   const c = cookies().get(SESSION_COOKIE);
   if (!c?.value) return null;
