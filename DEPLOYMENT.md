@@ -293,13 +293,15 @@ via the `due_reminders_sent` table).
 curl -fsS https://your-host/api/healthz   # {"status":"ok"}
 curl -fsS https://your-host/api/readyz    # {"status":"ready","checks":{"db":"ok"}}
 
-# 2. Demo login works (sanity check the session + DB write path).
-#    On a fresh (empty) database this first call also bootstraps the demo
-#    user and a starter workspace/project automatically.
+# 2. Sign-in: open https://your-host and use Continue with Google/GitHub
+#    (Step 5b). Your first sign-in on a fresh database also bootstraps a
+#    starter workspace/project automatically.
+#    Demo login is DISABLED by default in production; only if you
+#    deliberately set ALLOW_DEMO_LOGIN=true can you smoke-test headlessly:
 COOKIE=$(mktemp)
 curl -fsS -c "$COOKIE" -X POST https://your-host/api/v1/auth/demo-login
 
-# 3. Authenticated read works
+# 3. Authenticated read works (requires the cookie from a sign-in)
 curl -fsS -b "$COOKIE" https://your-host/api/v1/auth/me
 
 # 4. Jobs tick responds (proves CRON_SECRET + scheduler path)

@@ -1,20 +1,28 @@
 /**
- * Demo login endpoint. TechSpec §14.2 specifies email magic-link as Phase 2
- * auth; full magic-link delivery is deferred. For local development, this
- * endpoint signs the user into the seeded demo account by setting the
- * fb_user_id session cookie.
+ * Demo login endpoint — LOCAL DEV ONLY. Signs into the seeded demo account
+ * by setting the fb_user_id session cookie. Disabled unless
+ * ALLOW_DEMO_LOGIN=true; production sign-in is Google/GitHub OAuth
+ * (src/lib/oauth.ts). DELETE (sign-out) always works — it only clears the
+ * session cookie.
  */
 
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 import { ok, fail } from '@/lib/api';
 import { prisma } from '@/lib/db';
 import { ApiError, ErrorCodes } from '@/lib/errors';
-import { SESSION_COOKIE } from '@/lib/auth';
+import { SESSION_COOKIE, demoLoginEnabled } from '@/lib/auth';
 import { bootstrapFirstUser } from '@/lib/bootstrap';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  if (!demoLoginEnabled()) {
+    return NextResponse.json(
+      { error: { code: 'FORBIDDEN', message: 'Demo login is disabled on this instance. Sign in with Google or GitHub.' } },
+      { status: 403 },
+    );
+  }
   try {
     const body = (await req.json().catch(() => ({}))) as { email?: string };
     const email = body.email ?? process.env.SEED_USER_EMAIL ?? 'demo@flowboard.app';

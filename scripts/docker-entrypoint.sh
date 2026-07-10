@@ -16,8 +16,8 @@ prisma db push --skip-generate --accept-data-loss=false
 
 if [ "${SEED_ON_BOOT:-0}" = "1" ]; then
   echo "[entrypoint] SEED_ON_BOOT=1 — seed script not bundled in runtime image; skipping."
-  echo "[entrypoint] Note: on an empty database, the first demo-login bootstraps the"
-  echo "[entrypoint] demo user and a starter workspace automatically."
+  echo "[entrypoint] Note: on an empty database, the first sign-in (OAuth, or demo login"
+  echo "[entrypoint] when ALLOW_DEMO_LOGIN=true) bootstraps a starter workspace automatically."
 fi
 
 echo "[entrypoint] starting: $*"

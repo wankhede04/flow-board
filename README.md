@@ -236,6 +236,7 @@ The image:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables "Continue with Google" (optional). Redirect URI: `$APP_BASE_URL/api/v1/auth/oauth/google/callback`. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Enables "Continue with GitHub" (optional). Redirect URI: `$APP_BASE_URL/api/v1/auth/oauth/github/callback`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | Comma-separated domains allowed to **sign up** via OAuth (existing users always sign in). Empty = open sign-up. |
+| `ALLOW_DEMO_LOGIN` | Default `false`: demo login is hidden and its endpoint returns 403. Set `true` for local dev only. |
 | `SLACK_SIGNING_SECRET` | Enables the `/flowboard` command + interactivity + events endpoints (optional). |
 | `SLACK_BOT_TOKEN` | `xoxb-` token for outbound DMs — reminders and ticket-move notifications (optional). |
 | `ENABLE_SCHEDULER` | Default `true`: in-process 60s jobs tick. Set `false` on multi-replica/serverless and use external cron. |
@@ -268,7 +269,7 @@ The `Dockerfile` and `docker-compose.yml` are infra-agnostic and unchanged.
 ## API examples
 
 ```bash
-# Sign in (sets fb_user_id cookie)
+# Sign in (sets fb_user_id cookie; local dev only — needs ALLOW_DEMO_LOGIN=true)
 curl -i -X POST http://localhost:3000/api/v1/auth/demo-login
 
 # List workspaces for current user

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, demoLoginEnabled } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { configuredProviders } from '@/lib/oauth';
 import { DemoLoginButton } from '@/components/DemoLoginButton';
@@ -23,6 +23,7 @@ export default async function HomePage({
   }
 
   const providers = configuredProviders();
+  const showDemoLogin = demoLoginEnabled();
   const authError = searchParams?.auth_error;
 
   return (
@@ -52,27 +53,36 @@ export default async function HomePage({
                 </p>
               </div>
               <OAuthButtons providers={providers} />
-              <div className="flex items-center gap-3 text-[10px] uppercase tracking-wide text-text-muted">
-                <span className="h-px flex-1 bg-bg-border" />
-                or
-                <span className="h-px flex-1 bg-bg-border" />
-              </div>
             </>
-          ) : (
+          ) : !showDemoLogin ? (
             <div>
-              <h2 className="text-sm font-semibold text-text-primary">Demo access</h2>
+              <h2 className="text-sm font-semibold text-text-primary">No sign-in methods configured</h2>
               <p className="mt-1 text-xs text-text-secondary">
-                Sign in below. On a fresh deployment the first sign-in creates the demo
-                user and a starter workspace automatically; local dev can also seed a
-                full sample board with <code className="rounded bg-bg-surface px-1">pnpm db:seed</code>.
+                Configure Google or GitHub OAuth (see <code className="rounded bg-bg-surface px-1">DEPLOYMENT.md</code>,
+                Step 5b) to enable sign-in on this instance.
               </p>
             </div>
-          )}
-          <DemoLoginButton />
-          <div className="text-xs text-text-muted">
-            Or hit the API directly:{' '}
-            <code className="rounded bg-bg-surface px-1 py-0.5">POST /api/v1/auth/demo-login</code>
-          </div>
+          ) : null}
+          {showDemoLogin ? (
+            <>
+              {providers.length > 0 ? (
+                <div className="flex items-center gap-3 text-[10px] uppercase tracking-wide text-text-muted">
+                  <span className="h-px flex-1 bg-bg-border" />
+                  or
+                  <span className="h-px flex-1 bg-bg-border" />
+                </div>
+              ) : (
+                <div>
+                  <h2 className="text-sm font-semibold text-text-primary">Demo access (local dev)</h2>
+                  <p className="mt-1 text-xs text-text-secondary">
+                    Enabled via <code className="rounded bg-bg-surface px-1">ALLOW_DEMO_LOGIN=true</code>.
+                    Seed a full sample board with <code className="rounded bg-bg-surface px-1">pnpm db:seed</code>.
+                  </p>
+                </div>
+              )}
+              <DemoLoginButton />
+            </>
+          ) : null}
         </div>
         <div className="text-xs text-text-muted">
           <Link className="hover:text-text-secondary" href="/api/healthz">
