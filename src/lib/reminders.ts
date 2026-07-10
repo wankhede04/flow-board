@@ -16,7 +16,7 @@ import { prisma } from './db';
 import { newId } from './ids';
 import { ApiError, ErrorCodes } from './errors';
 import { createNotification } from './notifications';
-import { sendSlackDm } from './slack';
+import { channelForProject, postToChannel, sendSlackDm, slackMention } from './slack';
 
 export type ReminderRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
 export const RECURRENCES: ReminderRecurrence[] = ['none', 'daily', 'weekly', 'monthly'];
@@ -231,6 +231,24 @@ export async function deliverDueReminders(now = new Date()): Promise<number> {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[reminders] slack dm failed', reminder.id, err);
+    }
+
+    // Post to the linked channel too (project's channel, else the workspace
+    // default set by /flowboard link) so the team sees it — request #5.
+    try {
+      const channelId = await channelForProject(
+        reminder.workspaceId,
+        reminder.ticket?.projectId ?? null,
+      );
+      if (channelId) {
+        const mention = await slackMention(reminder.workspaceId, reminder.userId);
+        await postToChannel(reminder.workspaceId, channelId, {
+          text: `⏰ Reminder for ${mention}: *${reminder.title}*${ticketRef}${reminder.notes ? ` — ${reminder.notes}` : ''}`,
+        });
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[reminders] slack channel post failed', reminder.id, err);
     }
 
     const next = nextOccurrence(reminder.remindAt, reminder.recurrence as ReminderRecurrence);

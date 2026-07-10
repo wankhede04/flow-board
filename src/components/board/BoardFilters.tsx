@@ -26,7 +26,7 @@ export function BoardFilters({ filters, onChange, members, labels, currentUserId
     filters.assignee || filters.priority || filters.label || filters.context || filters.q;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex rounded-md border border-bg-border p-0.5 text-xs" role="group" aria-label="Task context">
         {[
           { value: null, label: 'All' },
@@ -48,7 +48,7 @@ export function BoardFilters({ filters, onChange, members, labels, currentUserId
         ))}
       </div>
       <input
-        className="input w-48 py-1 text-xs"
+        className="input w-36 py-1 text-xs sm:w-48"
         placeholder="Search title…"
         value={filters.q}
         onChange={(e) => update({ q: e.target.value })}

@@ -14,7 +14,7 @@ interface NotificationDto {
   createdAt: string;
 }
 
-export function NotificationBell() {
+export function NotificationBell({ compact = false }: { compact?: boolean }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
 
@@ -42,13 +42,24 @@ export function NotificationBell() {
   return (
     <div className="relative">
       <button
-        className="btn btn-ghost relative w-full justify-start text-sm"
+        className={
+          compact
+            ? 'btn btn-ghost relative w-full justify-center text-sm'
+            : 'btn btn-ghost relative w-full justify-start text-sm'
+        }
         onClick={() => setOpen((v) => !v)}
+        title="Notifications"
         aria-label={`Notifications${unread ? ` (${unread} unread)` : ''}`}
       >
-        🔔 Notifications
+        🔔{compact ? '' : ' Notifications'}
         {unread > 0 ? (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-accent px-1.5 py-px text-[10px] font-semibold text-white">
+          <span
+            className={
+              compact
+                ? 'absolute -right-0.5 -top-0.5 rounded-full bg-accent px-1 py-px text-[9px] font-semibold text-white'
+                : 'absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-accent px-1.5 py-px text-[10px] font-semibold text-white'
+            }
+          >
             {unread > 99 ? '99+' : unread}
           </span>
         ) : null}

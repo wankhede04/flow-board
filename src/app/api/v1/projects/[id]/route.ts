@@ -1,4 +1,5 @@
-import { ok, fail } from '@/lib/api';
+import { z } from 'zod';
+import { ok, fail, parseJson } from '@/lib/api';
 import { requireUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { requireProjectAccess } from '@/lib/permissions';
@@ -36,6 +37,33 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
         })),
       },
     });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+const patchSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  description: z.string().max(2000).nullable().optional(),
+});
+
+/** Rename a project / edit its description (project admins). */
+export async function PATCH(req: Request, ctx: { params: { id: string } }) {
+  try {
+    const user = await requireUser();
+    await requireProjectAccess(user.id, ctx.params.id, 'admin');
+    const body = await parseJson(req, patchSchema);
+
+    const data: Record<string, unknown> = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.description !== undefined) data.description = body.description;
+
+    const project = await prisma.project.update({
+      where: { id: ctx.params.id },
+      data,
+      select: { id: true, key: true, name: true, description: true },
+    });
+    return ok({ data: project });
   } catch (err) {
     return fail(err);
   }

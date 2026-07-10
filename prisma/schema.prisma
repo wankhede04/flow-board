@@ -44,17 +44,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  workspaces      WorkspaceMember[]
-  projectMembers  ProjectMember[]
-  reportedTickets Ticket[]          @relation("ReportedTickets")
-  ticketAssignees TicketAssignee[]
-  ticketWatchers  TicketWatcher[]
-  comments        Comment[]
-  activityEvents  ActivityEvent[]
-  attachments     Attachment[]
-  goals           Goal[]
-  reminders       Reminder[]
-  notifications   Notification[]
+  workspaces            WorkspaceMember[]
+  projectMembers        ProjectMember[]
+  reportedTickets       Ticket[]                @relation("ReportedTickets")
+  ticketAssignees       TicketAssignee[]
+  ticketWatchers        TicketWatcher[]
+  comments              Comment[]
+  activityEvents        ActivityEvent[]
+  attachments           Attachment[]
+  goals                 Goal[]
+  reminders             Reminder[]
+  notifications         Notification[]
+  GoogleCalendarAccount GoogleCalendarAccount[]
 }
 
 model WorkspaceMember {
@@ -125,25 +126,30 @@ model WorkflowColumn {
 // --- Tickets ------------------------------------------------------------
 
 model Ticket {
-  id             String    @id // tkt_<ulid>
-  workspaceId    String
-  projectId      String
-  number         Int
-  title          String
-  description    String? // Markdown
-  statusColumnId String
-  priority       String    @default("medium") // lowest|low|medium|high|urgent
-  context        String    @default("professional") // personal|professional
-  reporterId     String
-  dueDate        DateTime?
-  startDate      DateTime?
-  estimate       Float?
-  epicId         String?
-  rank           String // fractional index for board ordering
-  archivedAt     DateTime?
-  version        Int       @default(1) // optimistic locking
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id              String    @id // tkt_<ulid>
+  workspaceId     String
+  projectId       String
+  number          Int
+  title           String
+  description     String? // Markdown
+  statusColumnId  String
+  priority        String    @default("medium") // lowest|low|medium|high|urgent
+  context         String    @default("professional") // personal|professional
+  reporterId      String
+  dueDate         DateTime?
+  startDate       DateTime?
+  estimate        Float?
+  epicId          String?
+  rank            String // fractional index for board ordering
+  archivedAt      DateTime?
+  version         Int       @default(1) // optimistic locking
+  // Slack origin: set when the ticket was created from a channel message;
+  // thread replies on that message can then move the ticket.
+  slackChannelId  String?
+  slackMessageTs  String?
+  statusChangedAt DateTime  @default(now()) // last column move (stale-ticket scan)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -165,6 +171,7 @@ model Ticket {
   @@index([workspaceId])
   @@index([dueDate])
   @@index([workspaceId, context])
+  @@index([slackChannelId, slackMessageTs])
 }
 
 model TicketAssignee {
@@ -353,9 +360,56 @@ model SlackWorkspaceLink {
   botToken         String? // encrypted at rest in multi-tenant deploys; env fallback
   botUserId        String?
   defaultProjectId String?
+  defaultChannelId String? // fallback channel for workspace-level notifications
   installedAt      DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// A Slack channel wired to a project (`/flowboard link KEY` inside the
+// channel, or docs/SLACK_CHANNEL_SETUP.md). Messages in the channel create
+// tickets; ticket notifications (due, stale, reminders) post back to it.
+model SlackChannelLink {
+  id             String   @id // scl_<ulid>
+  workspaceId    String
+  projectId      String
+  slackChannelId String   @unique
+  channelName    String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  @@index([projectId])
+  @@index([workspaceId])
+}
+
+// Slack Events API retries deliveries; event_id rows make handling
+// idempotent (TechSpec §9.7). Rows older than a day can be pruned.
+model SlackEventDedup {
+  eventId   String   @id
+  createdAt DateTime @default(now())
+}
+
+// --- Google Calendar integration --------------------------------------------
+//
+// A user can connect multiple Google accounts; each stores an offline
+// refresh token (calendar.readonly) and the set of calendars selected for
+// the Schedule view. Tokens are stored server-side in the instance DB.
+
+model GoogleCalendarAccount {
+  id             String    @id // gca_<ulid>
+  userId         String
+  email          String
+  refreshToken   String
+  accessToken    String?
+  tokenExpiresAt DateTime?
+  // JSON array of {id, summary, color, selected}
+  calendars      String    @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
 }
 
 model Attachment {

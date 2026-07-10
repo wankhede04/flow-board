@@ -190,10 +190,16 @@ export async function transitionTicket(input: TransitionInput) {
         statusColumnId: target.id,
         rank: newRank,
         version: { increment: 1 },
+        ...(movingColumns ? { statusChangedAt: new Date() } : {}),
       },
     });
 
     if (movingColumns) {
+      // Moving resets the stale-ticket notification so a future stall
+      // in the new column notifies again.
+      await tx.dueReminderSent.deleteMany({
+        where: { ticketId: ticket.id, kind: 'stale_7d' },
+      });
       await recordActivity({
         ticketId: ticket.id,
         actorId: input.actorId,

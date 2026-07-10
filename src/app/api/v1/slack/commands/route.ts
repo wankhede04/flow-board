@@ -34,7 +34,9 @@ export async function POST(req: Request) {
   const teamId = params.get('team_id') ?? '';
   const slackUserId = params.get('user_id') ?? '';
   const text = params.get('text') ?? '';
+  const channelId = params.get('channel_id') ?? undefined;
+  const channelName = params.get('channel_name') ?? undefined;
 
-  const response = await executeSlashCommand({ teamId, slackUserId, text });
+  const response = await executeSlashCommand({ teamId, slackUserId, text, channelId, channelName });
   return NextResponse.json(response);
 }

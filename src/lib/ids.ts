@@ -18,7 +18,8 @@ export type IdPrefix =
   | 'rem' // reminder
   | 'ntf' // notification
   | 'slk' // slack workspace link
-  | 'scl'; // slack channel link
+  | 'scl' // slack channel link
+  | 'gca'; // google calendar account
 
 export function newId(prefix: IdPrefix): string {
   return `${prefix}_${ulid()}`;

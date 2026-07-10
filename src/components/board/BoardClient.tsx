@@ -182,15 +182,15 @@ export function BoardClient({ initialBoard, members, labels, currentUserId }: Pr
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-bg-border px-6 py-3">
-        <div>
+      <header className="flex flex-col gap-2 border-b border-bg-border px-4 py-3 pl-14 md:flex-row md:items-center md:justify-between md:px-6 md:pl-6">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>Project</span>
             <span className="rounded bg-bg-border px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
               {board.project.key}
             </span>
           </div>
-          <h1 className="text-lg font-semibold">{board.project.name}</h1>
+          <ProjectName projectId={board.project.id} name={board.project.name} onRenamed={() => qc.invalidateQueries({ queryKey })} />
         </div>
         <BoardFilters
           filters={filters}
@@ -262,6 +262,82 @@ export function BoardClient({ initialBoard, members, labels, currentUserId }: Pr
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Project title with click-to-rename (server enforces admin). */
+function ProjectName({
+  projectId,
+  name,
+  onRenamed,
+}: {
+  projectId: string;
+  name: string;
+  onRenamed: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    const next = draft.trim();
+    setEditing(false);
+    if (!next || next === name) return;
+    const res = await fetch(`/api/v1/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: next }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error?.message ?? 'Rename failed');
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+    onRenamed();
+  };
+
+  return editing ? (
+    <input
+      className="input mt-0.5 max-w-xs py-1 text-lg font-semibold"
+      autoFocus
+      value={draft}
+      maxLength={120}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') {
+          setDraft(name);
+          setEditing(false);
+        }
+      }}
+    />
+  ) : (
+    <div className="flex items-center gap-1.5">
+      <h1
+        className="cursor-text truncate text-lg font-semibold"
+        title="Click to rename project"
+        onClick={() => {
+          setDraft(name);
+          setEditing(true);
+        }}
+      >
+        {name}
+      </h1>
+      <button
+        className="text-xs text-text-muted hover:text-text-primary"
+        aria-label="Rename project"
+        title="Rename project"
+        onClick={() => {
+          setDraft(name);
+          setEditing(true);
+        }}
+      >
+        ✎
+      </button>
+      {error ? <span className="text-xs text-priority-urgent">{error}</span> : null}
     </div>
   );
 }

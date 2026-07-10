@@ -17,19 +17,24 @@
 import { prisma } from './db';
 import { createNotification } from './notifications';
 import { deliverDueReminders } from './reminders';
-import { sendSlackDm } from './slack';
+import { postToProjectChannel, sendSlackDm } from './slack';
 
 export interface TickResult {
   remindersDelivered: number;
   dueSoonNotified: number;
   overdueNotified: number;
+  staleNotified: number;
 }
+
+/** Tickets sitting in an in_progress column longer than this are "stale". */
+export const STALE_AFTER_DAYS = 7;
 
 export async function runJobsTick(now = new Date()): Promise<TickResult> {
   const remindersDelivered = await deliverDueReminders(now);
   const dueSoonNotified = await scanDueTickets('due_soon', now);
   const overdueNotified = await scanDueTickets('overdue', now);
-  return { remindersDelivered, dueSoonNotified, overdueNotified };
+  const staleNotified = await scanStaleTickets(now);
+  return { remindersDelivered, dueSoonNotified, overdueNotified, staleNotified };
 }
 
 /**
@@ -82,7 +87,76 @@ async function scanDueTickets(kind: 'due_soon' | 'overdue', now: Date): Promise<
         /* best-effort */
       }
     }
+    // Also announce in the project's linked channel (request #2).
+    try {
+      const dueStr = ticket.dueDate ? ticket.dueDate.toISOString().slice(0, 10) : '';
+      await postToProjectChannel(
+        ticket.workspaceId,
+        ticket.projectId,
+        kind === 'due_soon'
+          ? `📅 *[${key}] ${ticket.title}* is due ${dueStr}.`
+          : `🔥 *[${key}] ${ticket.title}* is overdue (was due ${dueStr}).`,
+      );
+    } catch {
+      /* best-effort */
+    }
     await prisma.dueReminderSent.create({ data: { ticketId: ticket.id, kind } });
+  }
+  return fresh.length;
+}
+
+/**
+ * Notify the linked channel about tickets stuck in an in-progress column
+ * for more than STALE_AFTER_DAYS (request #2). One notification per stall:
+ * the dedupe row is cleared when the ticket next moves, so a ticket that
+ * stalls again notifies again.
+ */
+async function scanStaleTickets(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_AFTER_DAYS * 24 * 3600_000);
+  const tickets = await prisma.ticket.findMany({
+    where: {
+      archivedAt: null,
+      statusChangedAt: { lte: cutoff },
+      statusColumn: { category: 'in_progress' },
+    },
+    include: {
+      project: { select: { key: true } },
+      statusColumn: { select: { name: true } },
+      assignees: { select: { userId: true } },
+    },
+    take: 200,
+  });
+  if (tickets.length === 0) return 0;
+
+  const alreadySent = await prisma.dueReminderSent.findMany({
+    where: { kind: 'stale_7d', ticketId: { in: tickets.map((t) => t.id) } },
+    select: { ticketId: true },
+  });
+  const sentIds = new Set(alreadySent.map((r) => r.ticketId));
+  const fresh = tickets.filter((t) => !sentIds.has(t.id));
+
+  for (const ticket of fresh) {
+    const key = `${ticket.project.key}-${ticket.number}`;
+    const days = Math.floor((now.getTime() - ticket.statusChangedAt.getTime()) / (24 * 3600_000));
+    const title = `🐢 Stale: [${key}] ${ticket.title} has been in "${ticket.statusColumn.name}" for ${days} days`;
+    const linkUrl = `/workspace/${ticket.workspaceId}/projects/${ticket.projectId}?ticket=${ticket.id}`;
+
+    const recipients = ticket.assignees.length
+      ? ticket.assignees.map((a) => a.userId)
+      : [ticket.reporterId];
+    for (const userId of recipients) {
+      await createNotification({ userId, type: 'ticket_overdue', title, linkUrl });
+    }
+    try {
+      await postToProjectChannel(
+        ticket.workspaceId,
+        ticket.projectId,
+        `🐢 *[${key}] ${ticket.title}* has been sitting in *${ticket.statusColumn.name}* for *${days} days* without moving.`,
+      );
+    } catch {
+      /* best-effort */
+    }
+    await prisma.dueReminderSent.create({ data: { ticketId: ticket.id, kind: 'stale_7d' } });
   }
   return fresh.length;
 }

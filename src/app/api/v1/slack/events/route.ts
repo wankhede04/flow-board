@@ -1,10 +1,13 @@
 /**
  * Slack Events API endpoint. Handles the url_verification handshake and
- * acks event callbacks (§9.6 — always 200 fast; processing is best-effort).
+ * message events from linked channels: a channel message creates a ticket,
+ * a thread reply with a status keyword moves it (src/lib/slack-channel.ts).
+ * Always acks fast (§9.6) — processing continues after the response.
  */
 
 import { NextResponse } from 'next/server';
 import { verifySlackSignature } from '@/lib/slack';
+import { handleSlackEvent, type SlackEventEnvelope } from '@/lib/slack-channel';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -26,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
   }
 
-  let body: { type?: string; challenge?: string };
+  let body: SlackEventEnvelope & { challenge?: string };
   try {
     body = JSON.parse(rawBody);
   } catch {
@@ -37,7 +40,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ challenge: body.challenge });
   }
 
-  // event_callback: ack immediately. (Two-way comment sync is a reserved
-  // follow-up — see TechSpec §9.4; slack_message_ts is already on comments.)
+  // Ack within Slack's 3s window; the handler keeps running after the
+  // response (fine on the long-lived Node server this app targets).
+  void handleSlackEvent(body).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('[slack] event handling failed', err);
+  });
   return NextResponse.json({ ok: true });
 }

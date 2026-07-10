@@ -342,4 +342,64 @@ describe('jobs tick — due-date scan', () => {
     const types = notifications.map((n) => n.type).sort();
     expect(types).toEqual(['ticket_due_soon', 'ticket_overdue']);
   });
+
+  it('flags tickets stuck in progress for 7+ days once, re-arming on move', async () => {
+    const fx = await buildFixture();
+    const { createTicket, transitionTicket, runJobsTick } = await loadServices();
+
+    // Need an in_progress column: repurpose the fixture by adding one.
+    const inProgress = await prisma.workflowColumn.create({
+      data: {
+        id: `col_${ulid()}`,
+        projectId: fx.projectId,
+        name: 'In Progress',
+        category: 'in_progress',
+        position: 2,
+      },
+    });
+    const ticket = await createTicket({
+      workspaceId: fx.workspaceId,
+      projectId: fx.projectId,
+      reporterId: fx.userId,
+      title: 'Stuck work',
+      statusColumnId: inProgress.id,
+    });
+    // Backdate the last status change by 8 days.
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { statusChangedAt: new Date(Date.now() - 8 * 24 * 3600_000) },
+    });
+
+    const first = await runJobsTick();
+    expect(first.staleNotified).toBe(1);
+    // Never re-notifies while it stays put.
+    expect((await runJobsTick()).staleNotified).toBe(0);
+
+    const stale = await prisma.notification.findFirst({
+      where: { userId: fx.userId, title: { contains: 'Stale' } },
+    });
+    expect(stale).not.toBeNull();
+
+    // Moving the ticket clears the dedupe row and resets the clock…
+    await transitionTicket({
+      ticketId: ticket.id,
+      actorId: fx.userId,
+      targetColumnId: fx.todoColumnId,
+    });
+    expect(
+      await prisma.dueReminderSent.findUnique({
+        where: { ticketId_kind: { ticketId: ticket.id, kind: 'stale_7d' } },
+      }),
+    ).toBeNull();
+    const moved = await prisma.ticket.findUnique({ where: { id: ticket.id } });
+    expect(moved!.statusChangedAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+
+    // …and a fresh 8-day stall in an in-progress column notifies again.
+    await transitionTicket({ ticketId: ticket.id, actorId: fx.userId, targetColumnId: inProgress.id });
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { statusChangedAt: new Date(Date.now() - 8 * 24 * 3600_000) },
+    });
+    expect((await runJobsTick()).staleNotified).toBe(1);
+  });
 });
