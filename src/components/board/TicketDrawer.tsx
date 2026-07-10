@@ -78,7 +78,7 @@ export function TicketDrawer({ ticketId, onClose, members, labels, onChanged }: 
   return (
     <div className="fixed inset-0 z-20 flex" role="dialog" aria-modal>
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <aside className="flex h-full w-full max-w-xl flex-col border-l border-bg-border bg-bg-surface">
+      <aside className="flex h-full w-full flex-col border-l border-bg-border bg-bg-surface sm:max-w-xl">
         {isLoading ? (
           <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
             Loading…
@@ -206,15 +206,29 @@ function DrawerContents({
               }}
             />
           ) : (
-            <h2
-              className="mt-1 cursor-text text-lg font-semibold"
-              onClick={() => {
-                setTitleDraft(ticket.title);
-                setEditingTitle(true);
-              }}
-            >
-              {ticket.title}
-            </h2>
+            <div className="flex items-start gap-1.5">
+              <h2
+                className="mt-1 cursor-text text-lg font-semibold"
+                title="Click to rename"
+                onClick={() => {
+                  setTitleDraft(ticket.title);
+                  setEditingTitle(true);
+                }}
+              >
+                {ticket.title}
+              </h2>
+              <button
+                className="mt-2 text-xs text-text-muted hover:text-text-primary"
+                aria-label="Rename task"
+                title="Rename task"
+                onClick={() => {
+                  setTitleDraft(ticket.title);
+                  setEditingTitle(true);
+                }}
+              >
+                ✎
+              </button>
+            </div>
           )}
         </div>
         <button
@@ -227,8 +241,8 @@ function DrawerContents({
         </button>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <section className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+        <section className="flex-1 px-5 py-4 md:overflow-y-auto">
           <div className="mb-6">
             <h3 className="label">Description</h3>
             {editingDesc ? (
@@ -347,7 +361,7 @@ function DrawerContents({
           </div>
         </section>
 
-        <aside className="w-60 shrink-0 space-y-5 overflow-y-auto border-l border-bg-border bg-bg-base/40 px-4 py-4">
+        <aside className="w-full shrink-0 space-y-5 border-t border-bg-border bg-bg-base/40 px-4 py-4 md:w-60 md:overflow-y-auto md:border-l md:border-t-0">
           <div>
             <h3 className="label">Reporter</h3>
             <div className="flex items-center gap-2 text-sm">

@@ -37,7 +37,7 @@ export default async function WorkspaceLayout({
         projects={projects}
         user={{ id: user.id, name: user.name, email: user.email }}
       />
-      <main className="flex-1 overflow-hidden">{children}</main>
+      <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }

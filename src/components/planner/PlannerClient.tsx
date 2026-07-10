@@ -238,7 +238,7 @@ export function PlannerClient({ workspaceId }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-bg-border px-6 py-3">
+      <header className="border-b border-bg-border px-4 py-3 pl-14 md:px-6 md:pl-6">
         <h1 className="text-lg font-semibold">Planner</h1>
         <p className="text-xs text-text-muted">
           Set time reminders to organise your work — snooze, reschedule or repeat them as plans change.

@@ -147,7 +147,7 @@ export function ScheduleClient({ workspaceId, initialPeriods, calError }: Props)
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-bg-border px-6 py-3">
+      <header className="flex flex-col gap-2 border-b border-bg-border px-4 py-3 pl-14 sm:flex-row sm:items-center sm:justify-between md:px-6 md:pl-6">
         <div>
           <h1 className="text-lg font-semibold">Schedule</h1>
           <p className="text-xs text-text-muted">
@@ -214,7 +214,7 @@ export function ScheduleClient({ workspaceId, initialPeriods, calError }: Props)
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-bg-border px-6 py-2.5">
+      <div className="flex flex-wrap items-center gap-3 border-b border-bg-border px-4 py-2.5 md:px-6">
         <div className="flex rounded-md border border-bg-border p-0.5 text-xs" role="tablist">
           {VIEWS.map((v) => (
             <button
@@ -282,7 +282,12 @@ export function ScheduleClient({ workspaceId, initialPeriods, calError }: Props)
         ) : view === 'monthly' ? (
           <MonthGrid days={days} eventsByDay={eventsByDay} />
         ) : (
-          <div className={cn('grid gap-3', view === 'weekly' ? 'grid-cols-7' : 'mx-auto max-w-2xl grid-cols-1')}>
+          <div
+            className={cn(
+              'grid gap-3',
+              view === 'weekly' ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-7' : 'mx-auto max-w-2xl grid-cols-1',
+            )}
+          >
             {days.map((d) => (
               <DayColumn key={d} day={d} events={eventsByDay.get(d) ?? []} single={view === 'daily'} />
             ))}
@@ -366,12 +371,12 @@ function MonthGrid({ days, eventsByDay }: { days: string[]; eventsByDay: Map<str
       <div className="mt-1 grid grid-cols-7 gap-1">
         {cells.map((day, i) =>
           day === null ? (
-            <div key={`pad-${i}`} className="min-h-[92px] rounded-md bg-bg-surface/40" />
+            <div key={`pad-${i}`} className="min-h-[56px] rounded-md bg-bg-surface/40 sm:min-h-[92px]" />
           ) : (
             <div
               key={day}
               className={cn(
-                'min-h-[92px] rounded-md border border-bg-border p-1',
+                'min-h-[56px] rounded-md border border-bg-border p-1 sm:min-h-[92px]',
                 day === today && 'border-accent/50 bg-accent/5',
               )}
             >

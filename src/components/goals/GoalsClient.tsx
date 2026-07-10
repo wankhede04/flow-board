@@ -116,14 +116,14 @@ export function GoalsClient({ workspaceId, initialPeriods }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-bg-border px-6 py-3">
+      <header className="border-b border-bg-border px-4 py-3 pl-14 md:px-6 md:pl-6">
         <h1 className="text-lg font-semibold">Goals</h1>
         <p className="text-xs text-text-muted">
           Plan your day, week, month and year — check goals off as you land them.
         </p>
       </header>
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-bg-border px-6 py-2.5">
+      <div className="flex flex-wrap items-center gap-3 border-b border-bg-border px-4 py-2.5 md:px-6">
         <div className="flex rounded-md border border-bg-border p-0.5 text-xs" role="tablist">
           {CADENCES.map((c) => (
             <button
@@ -200,9 +200,9 @@ export function GoalsClient({ workspaceId, initialPeriods }: Props) {
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <div className="mx-auto max-w-2xl">
-          <div className="mb-4 flex gap-2">
+          <div className="mb-4 flex flex-wrap gap-2">
             <input
-              className="input flex-1"
+              className="input min-w-[180px] flex-1"
               placeholder={`Add a ${cadence} goal…`}
               value={newTitle}
               maxLength={200}

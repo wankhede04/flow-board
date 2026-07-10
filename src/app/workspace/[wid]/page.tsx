@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/db';
+import { NewProjectButton } from '@/components/NewProjectButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,7 @@ export default async function WorkspaceHome({ params }: { params: { wid: string 
   });
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-8">
+    <div className="h-full overflow-y-auto px-4 py-6 pl-14 md:px-8 md:py-8 md:pl-8">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold">{workspace?.name}</h1>
         <p className="mt-1 text-sm text-text-secondary">
@@ -25,9 +26,12 @@ export default async function WorkspaceHome({ params }: { params: { wid: string 
       </header>
 
       <section>
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-text-muted">
-          Projects
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-text-muted">
+            Projects
+          </h2>
+          <NewProjectButton workspaceId={params.wid} />
+        </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {projects.map((p) => (
             <Link
