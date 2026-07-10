@@ -17,10 +17,17 @@ planning tool:
   and Slack DMs. Due-soon/overdue ticket nudges included.
 - **Personal & professional tasks** — every ticket carries a context; the
   board, create modal, drawer and goals all filter on it.
-- **Slack integration** — `/flowboard` slash commands create tickets, move
-  them between columns, list your work, and set reminders; reminder DMs have
-  interactive Snooze/Done buttons; ticket moves DM the reporter + assignees.
-  Signed webhooks (HMAC, replay-window) per TechSpec §9.5.
+- **Slack integration** — link a channel (e.g. `#flowboard`) with
+  `/flowboard link`: every message there becomes a ticket, and thread
+  replies (`todo` / `pending` / `in progress` / `done`) move it. Due-date,
+  stale-ticket (7 days unmoved in progress) and reminder notifications post
+  back to the channel. Plus `/flowboard` slash commands (create/move/list/
+  remind), interactive Snooze/Done buttons on reminder DMs, and DM fan-out
+  on ticket moves. Signed webhooks (HMAC, replay-window) per TechSpec §9.5.
+  Channel setup guide: [`docs/SLACK_CHANNEL_SETUP.md`](./docs/SLACK_CHANNEL_SETUP.md).
+- **Schedule (Google Calendar)** — connect multiple Google accounts per
+  user, pick calendars, and see a merged daily / weekly / monthly schedule
+  next to your tasks.
 
 ## Quick start
 

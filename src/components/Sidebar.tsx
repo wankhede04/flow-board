@@ -34,6 +34,7 @@ export function Sidebar({ workspace, projects, user }: SidebarProps) {
           {[
             { href: `/workspace/${workspace.id}/goals`, icon: '🎯', label: 'Goals' },
             { href: `/workspace/${workspace.id}/planner`, icon: '⏰', label: 'Planner' },
+            { href: `/workspace/${workspace.id}/schedule`, icon: '📅', label: 'Schedule' },
           ].map((item) => {
             const active = pathname?.startsWith(item.href);
             return (

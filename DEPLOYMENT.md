@@ -208,12 +208,17 @@ report or own change status. The app is fully functional without it.
          - im:write
          - users:read
          - users:read.email
+         - channels:history
+         - groups:history
    settings:
      interactivity:
        is_enabled: true
        request_url: https://flowboard.example.com/api/v1/slack/interactivity
      event_subscriptions:
        request_url: https://flowboard.example.com/api/v1/slack/events
+       bot_events:
+         - message.channels
+         - message.groups
      org_deploy_enabled: false
      socket_mode_enabled: false
    ```
@@ -228,6 +233,9 @@ report or own change status. The app is fully functional without it.
 6. In Slack, run `/flowboard help`, then `/flowboard create Try the integration`.
    User matching is by email: a Slack user maps to the FlowBoard user with the
    same email address (the mapping is cached on `workspace_members.slack_user_id`).
+7. **Link a channel** so messages become tickets and notifications post back:
+   see [`docs/SLACK_CHANNEL_SETUP.md`](./docs/SLACK_CHANNEL_SETUP.md) — in short,
+   `/invite @flowboard` into the channel, then `/flowboard link <PROJECT_KEY>`.
 
 > **Local testing:** expose port 3000 with `ngrok http 3000` and use the
 > ngrok URL in the manifest (TechSpec §19.2).
@@ -262,6 +270,17 @@ Account policy:
 - To keep the instance private, set
   `AUTH_ALLOWED_EMAIL_DOMAINS=yourcompany.com` — new sign-ups outside those
   domains are rejected (existing users are unaffected).
+
+**Google Calendar (Schedule page)** reuses the same Google OAuth app:
+
+1. In Google Cloud Console, **enable the "Google Calendar API"** for the
+   project (APIs & Services → Library).
+2. Add a second authorized redirect URI to the OAuth client:
+   `https://flowboard.example.com/api/v1/calendar/google/callback`
+3. Done — users connect calendars from **Schedule → Connect Google
+   Calendar**. Each user can connect multiple Google accounts and choose
+   which calendars appear; read-only refresh tokens are stored in the
+   instance database.
 
 ---
 

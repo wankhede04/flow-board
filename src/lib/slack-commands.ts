@@ -5,6 +5,7 @@
  */
 
 import { prisma } from './db';
+import { newId } from './ids';
 import { ApiError } from './errors';
 import { createTicket, transitionTicket } from './tickets';
 import { createReminder } from './reminders';
@@ -34,6 +35,8 @@ export async function executeSlashCommand(input: {
   teamId: string;
   slackUserId: string;
   text: string;
+  channelId?: string;
+  channelName?: string;
 }): Promise<SlashResponse> {
   const workspaceId = await resolveWorkspaceForTeam(input.teamId);
   if (!workspaceId) {
@@ -142,6 +145,58 @@ export async function executeSlashCommand(input: {
           (t) => `• *${t.project.key}-${t.number}* ${t.title} — _${t.statusColumn.name}_ (${t.priority})`,
         );
         return ephemeral(`*Open tickets (${cmd.scope}):*\n${lines.join('\n')}`);
+      }
+
+      case 'link': {
+        if (!input.channelId) {
+          return ephemeral('⚠️ Run `/flowboard link` inside the channel you want to link.');
+        }
+        const project = await pickProject(workspaceId, member.userId, cmd.projectKey);
+        if (!project) {
+          return ephemeral(
+            cmd.projectKey
+              ? `⚠️ No project with key \`${cmd.projectKey}\` in this workspace.`
+              : '⚠️ You are not a member of any project yet.',
+          );
+        }
+        await prisma.slackChannelLink.upsert({
+          where: { slackChannelId: input.channelId },
+          update: { projectId: project.id, channelName: input.channelName ?? null },
+          create: {
+            id: newId('scl'),
+            workspaceId,
+            projectId: project.id,
+            slackChannelId: input.channelId,
+            channelName: input.channelName ?? null,
+            createdById: member.userId,
+          },
+        });
+        // First linked channel doubles as the workspace default for
+        // notifications that aren't tied to a project.
+        await prisma.slackWorkspaceLink.updateMany({
+          where: { workspaceId, defaultChannelId: null },
+          data: { defaultChannelId: input.channelId },
+        });
+        return {
+          response_type: 'in_channel',
+          text:
+            `🔗 This channel is now linked to *${project.name}* (\`${project.key}\`).\n` +
+            `• Any message posted here creates a ticket.\n` +
+            `• Reply \`todo\`, \`pending\`, \`in progress\` or \`done\` in a ticket's thread to move it.\n` +
+            `• Due-date, stale-ticket and reminder notifications will post here.`,
+        };
+      }
+
+      case 'unlink': {
+        if (!input.channelId) return ephemeral('⚠️ Run `/flowboard unlink` inside the linked channel.');
+        const deleted = await prisma.slackChannelLink.deleteMany({
+          where: { slackChannelId: input.channelId, workspaceId },
+        });
+        await prisma.slackWorkspaceLink.updateMany({
+          where: { workspaceId, defaultChannelId: input.channelId },
+          data: { defaultChannelId: null },
+        });
+        return ephemeral(deleted.count > 0 ? '🔓 Channel unlinked.' : 'This channel was not linked.');
       }
 
       case 'remind': {

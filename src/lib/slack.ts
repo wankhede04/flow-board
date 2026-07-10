@@ -76,6 +76,8 @@ export type SlashCommand =
   | { action: 'move'; ticketKey: string; targetColumn: string }
   | { action: 'list'; scope: 'me' | 'all' }
   | { action: 'remind'; inMinutes: number; title: string }
+  | { action: 'link'; projectKey?: string }
+  | { action: 'unlink' }
   | { action: 'help' }
   | { action: 'error'; message: string };
 
@@ -144,6 +146,17 @@ export function parseSlashCommand(raw: string): SlashCommand {
       return { action: 'list', scope };
     }
 
+    case 'link': {
+      const key = rest.trim();
+      if (key && !/^[A-Za-z][A-Za-z0-9]{1,9}$/.test(key)) {
+        return { action: 'error', message: 'Usage: `/flowboard link [PROJECT_KEY]` (run inside the channel to link)' };
+      }
+      return { action: 'link', projectKey: key ? key.toUpperCase() : undefined };
+    }
+
+    case 'unlink':
+      return { action: 'unlink' };
+
     case 'remind': {
       let m = rest.match(/^in\s+(\S+(?:\s+\S+)?)\s+(.+)$/i);
       if (m) {
@@ -171,6 +184,8 @@ export const SLASH_HELP_TEXT = [
   '• `/flowboard move FB-12 to Done` — move a ticket to a column',
   '• `/flowboard list [me|all]` — your open tickets (or all)',
   '• `/flowboard remind in 30m <title>` — set a reminder (units m/h/d, or `tomorrow`)',
+  '• `/flowboard link [KEY]` — link *this channel* to a project: messages here become tickets, and due/stale/reminder notifications post here',
+  '• `/flowboard unlink` — unlink this channel',
   '• `/flowboard help` — this message',
 ].join('\n');
 
@@ -329,6 +344,60 @@ export async function sendSlackDm(
     ...(message.blocks ? { blocks: message.blocks } : {}),
   });
   return posted != null;
+}
+
+/** Post a message to a channel (optionally into a thread). Best-effort. */
+export async function postToChannel(
+  workspaceId: string,
+  channelId: string,
+  message: { text: string; threadTs?: string; blocks?: unknown[] },
+): Promise<boolean> {
+  const token = await getBotToken(workspaceId);
+  if (!token) return false;
+  const posted = await slackApi('chat.postMessage', token, {
+    channel: channelId,
+    text: message.text,
+    ...(message.threadTs ? { thread_ts: message.threadTs } : {}),
+    ...(message.blocks ? { blocks: message.blocks } : {}),
+  });
+  return posted != null;
+}
+
+/**
+ * The channel to notify for a project: its linked channel if one exists,
+ * else the workspace's default channel (set on first `/flowboard link`).
+ */
+export async function channelForProject(
+  workspaceId: string,
+  projectId: string | null,
+): Promise<string | null> {
+  if (projectId) {
+    const link = await prisma.slackChannelLink.findFirst({ where: { projectId } });
+    if (link) return link.slackChannelId;
+  }
+  const ws = await prisma.slackWorkspaceLink.findUnique({ where: { workspaceId } });
+  return ws?.defaultChannelId ?? null;
+}
+
+/** Post to the project's linked channel (workspace default as fallback). */
+export async function postToProjectChannel(
+  workspaceId: string,
+  projectId: string | null,
+  text: string,
+): Promise<boolean> {
+  const channelId = await channelForProject(workspaceId, projectId);
+  if (!channelId) return false;
+  return postToChannel(workspaceId, channelId, { text });
+}
+
+/** Slack mention for a user when their Slack ID is mapped, else their name. */
+export async function slackMention(workspaceId: string, userId: string): Promise<string> {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    include: { user: { select: { name: true } } },
+  });
+  if (member?.slackUserId) return `<@${member.slackUserId}>`;
+  return member?.user.name ?? 'someone';
 }
 
 /**
