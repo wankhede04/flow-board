@@ -1,18 +1,40 @@
-# Self-hosted runtime for the GHCR image.
+# Self-hosted runtime for the GHCR image, with a bundled Postgres database.
 # Usage:
 #   docker compose pull && docker compose up -d
 #
 # Override the image tag with `FLOWBOARD_IMAGE` (default: latest from main).
-# DB persists in the named volume `flowboard-data` as /data/flowboard.db.
+# Postgres data persists in the named volume `flowboard-db-data`.
 # `prisma db push` runs on every boot (idempotent) so pulling a newer image
 # automatically applies any schema changes.
+#
+# This is the single-box deployment story. For a managed, horizontally
+# scalable deployment (RDS instead of this bundled container, ECS Fargate
+# instead of a single box), see infra/ (Terraform) and DEPLOYMENT.md.
 
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flowboard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-please-change-me}
+      POSTGRES_DB: flowboard
+    volumes:
+      - flowboard-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowboard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   flowboard:
     image: ${FLOWBOARD_IMAGE:-ghcr.io/wankhede04/flow-board:latest}
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      DATABASE_URL: file:/data/flowboard.db
+      DATABASE_URL: postgresql://flowboard:${POSTGRES_PASSWORD:-please-change-me}@db:5432/flowboard
       JWT_SECRET: ${JWT_SECRET:-please-change-me}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       # Demo login is for local dev; keep it off in production.
@@ -32,8 +54,6 @@ services:
       CRON_SECRET: ${CRON_SECRET:-}
     ports:
       - "${FLOWBOARD_PORT:-3000}:3000"
-    volumes:
-      - flowboard-data:/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -42,4 +62,4 @@ services:
       start_period: 20s
 
 volumes:
-  flowboard-data:
+  flowboard-db-data:

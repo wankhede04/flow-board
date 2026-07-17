@@ -1,17 +1,18 @@
 // FlowBoard Prisma schema.
 //
-// Mirrors the TechSpec §5.2 Postgres DDL. We use SQLite locally for zero-setup
-// development; Postgres-only types (tsvector, JSONB, BYTEA, TIMESTAMPTZ) are
-// represented with portable equivalents (String/Json/Bytes/DateTime).
-// To switch to Postgres for production, change `provider = "postgresql"` and
-// the schema is otherwise compatible.
+// Mirrors the TechSpec §5.2 Postgres DDL. Postgres-only types (tsvector,
+// JSONB, BYTEA, TIMESTAMPTZ) are represented with portable equivalents
+// (String/Json/Bytes/DateTime), so this schema works unchanged against
+// Postgres 13+. Local dev and CI run against a local Postgres instance
+// (see docker-compose.yml's `db` service) rather than SQLite, so behavior
+// matches production exactly — SQLite is no longer used anywhere.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

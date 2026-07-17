@@ -34,9 +34,10 @@ FROM deps AS builder
 WORKDIR /app
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# DATABASE_URL is required for `prisma generate` to read at build time.
-# The value is never connected to during the build; runtime overrides it.
-ENV DATABASE_URL="file:/tmp/build.db"
+# DATABASE_URL is required for `prisma generate` to read at build time — it
+# only needs to parse as a valid Postgres URL, it's never connected to
+# during the build. Runtime always overrides it with the real value.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN pnpm db:generate \
  && pnpm build
 
@@ -52,14 +53,14 @@ RUN apt-get update \
  && useradd  --system --uid 1001 --gid nodejs --home /app nextjs \
  && npm install -g --no-audit --no-fund prisma@${PRISMA_VERSION} \
  && npm cache clean --force \
- && mkdir -p /data \
- && chown -R nextjs:nodejs /app /data
+ && chown -R nextjs:nodejs /app
 
 ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    NEXT_TELEMETRY_DISABLED=1 \
-    DATABASE_URL="file:/data/flowboard.db"
+    NEXT_TELEMETRY_DISABLED=1
+# DATABASE_URL has no default — it must be provided at runtime (Postgres
+# connection string). The entrypoint fails fast if it's unset.
 
 # Standalone bundle includes the slice of node_modules (and Prisma engines)
 # that the server needs at runtime.
@@ -75,7 +76,6 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
-VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+ (process.env.PORT||3000) +'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

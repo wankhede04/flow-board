@@ -1,39 +1,31 @@
 /**
  * Tests for the channel-driven ticket flow: status-keyword grammar (pure)
- * and handleSlackEvent against a hermetic SQLite DB — channel message →
- * ticket, thread reply → move, dedupe, and ignore rules.
+ * and handleSlackEvent against a throwaway Postgres database (see
+ * ./test-db.ts) — channel message → ticket, thread reply → move, dedupe,
+ * and ignore rules.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
+import { createTestDb, type TestDb } from './test-db';
 
+let testDb: TestDb;
 let prisma: PrismaClient;
-let tmpDir: string;
 let dbUrl: string;
 
 const id = (prefix: string) => `${prefix}_${ulid()}`;
 
-beforeAll(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), 'fb-chan-test-'));
-  dbUrl = `file:${path.join(tmpDir, 'test.db')}`;
-  process.env.DATABASE_URL = dbUrl;
+beforeAll(async () => {
   delete process.env.SLACK_BOT_TOKEN; // outbound confirmations become no-ops
-  execSync('npx prisma db push --skip-generate', {
-    env: { ...process.env, DATABASE_URL: dbUrl },
-    cwd: process.cwd(),
-    stdio: 'pipe',
-  });
-  prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+  testDb = await createTestDb('slack_channel');
+  prisma = testDb.prisma;
+  dbUrl = testDb.dbUrl;
+  process.env.DATABASE_URL = dbUrl;
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  rmSync(tmpDir, { recursive: true, force: true });
+  await testDb.teardown();
 });
 
 beforeEach(async () => {

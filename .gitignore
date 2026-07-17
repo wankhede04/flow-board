@@ -13,16 +13,16 @@ dist
 coverage
 .turbo
 
-# Prisma local DB
-prisma/*.db
-prisma/*.db-journal
-
 # next-env
 next-env.d.ts
 
 # TS build info
 tsconfig.tsbuildinfo
 
-# Test artefacts
-test.db
-build.db
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/*.tfplan
+infra/crash.log

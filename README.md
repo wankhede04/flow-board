@@ -34,9 +34,10 @@ planning tool:
 ```bash
 pnpm install
 cp .env.example .env
-pnpm db:push        # creates SQLite schema
-pnpm db:seed        # demo workspace, project, ~20 tickets, 4 users
-pnpm dev            # http://localhost:3000
+docker compose up db -d  # local Postgres 16 (just the db service)
+pnpm db:push              # applies the schema
+pnpm db:seed              # demo workspace, project, ~20 tickets, 4 users
+pnpm dev                  # http://localhost:3000
 ```
 
 Click **Sign in as demo user** on the home page. You'll land on the demo
@@ -62,7 +63,7 @@ workspace and can open the seeded *FlowBoard MVP* project.
 | §11.5 Accessibility — keyboard DnD, focus rings, escape closes drawer | Basic |
 | §9 Slack — slash commands, interactivity, events handshake, signature verification | Done — single-service adaptation (see below) |
 | §10.5 Due-date reminders with dedupe table | Done — plus user-set reminders with recurrence & snooze |
-| §18 Tests — happy path, version conflict, WIP limit, admin bypass, activity log | Done — 55 vitest tests, hermetic SQLite |
+| §18 Tests — happy path, version conflict, WIP limit, admin bypass, activity log | Done — 79 vitest tests, hermetic Postgres (throwaway DB per spec file) |
 | Goals (daily/weekly/monthly/yearly) & personal/professional contexts | Done — extension beyond the original spec |
 
 ## Deviations from the TechSpec
@@ -76,14 +77,13 @@ model or API contract.
 
 | Spec | This build | Reason / migration path |
 | --- | --- | --- |
-| Postgres 16 | SQLite (file) | Zero-setup for local dev. Schema is portable: switch `provider = "postgresql"` in `prisma/schema.prisma` and run `db push` against a Postgres URL. |
 | NestJS api-gateway + core-service | Next.js Route Handlers under `src/app/api/v1/...` | Same URL paths, same DTOs, same error envelope. Lift-and-shift to NestJS controllers when needed. |
 | Notification service (Go), Kafka | In-process: `notifications` table + polling bell UI + Slack DMs, driven by a 60s scheduler tick (`src/lib/jobs.ts`) | Same routing semantics without the Kafka hop; lift into a consumer when an event bus is introduced. |
 | Slack connector (Go) | Next.js route handlers (`/api/v1/slack/*`) with §9.5 signature verification | Same webhook contract; commands execute in-process against the same service layer. OAuth install flow deferred — single-tenant env-token binding instead (`SLACK_BOT_TOKEN`). |
 | WebSocket realtime | Polling fallback (TanStack Query refetches every 15s) | Same client-visible behavior at higher latency. Add a Redis-backed WS gateway when introduced. |
 | NextAuth + JWT + magic link | Cookie session (`fb_user_id`) with demo login + Google/GitHub OAuth (authorization-code flow in `src/lib/oauth.ts`, no extra deps) | Session resolution is centralized in `src/lib/auth.ts` — swap in NextAuth/JWT without touching call sites. Magic-link email deferred. |
 | OpenTelemetry, Pino, Prometheus | `console.error` for unhandled errors only | Drop-in via the shared logger seam in `src/lib/api.ts`. |
-| Helm charts, Terraform, ECR, EKS, multi-env CD | A single CI workflow (lint, typecheck, test, build) | The CD layer in §23 of the spec is fully separable; CI gates are in place to support it. |
+| Helm charts, EKS, multi-env CD | Terraform for ECS Fargate instead of EKS (`infra/`) — RDS, ALB+ACM, CloudWatch, EventBridge Scheduler, GitHub OIDC deploy pipeline (`deploy-ecs.yml`). Single environment, not multi-env. | ECS was chosen over EKS for a small-team deployment's lower operational surface; the container/task-definition model translates directly to an EKS Deployment + Helm chart if that's ever needed. |
 
 Anything in `Out of scope for v1` (§21) is also out of scope here.
 
@@ -135,7 +135,10 @@ src/
     ├── reminders.ts            # reminder lifecycle: deliver, snooze, recur
     ├── slack.ts                # §9.5 signatures, command grammar, Web API client
     ├── slack-commands.ts       # /flowboard command execution
+    ├── test-db.ts              # throwaway-Postgres-per-spec-file test fixture
     └── tickets.ts              # createTicket, transitionTicket, updateTicket
+
+infra/                          # Terraform: ECS Fargate + RDS + ALB + CloudWatch — see infra/README.md
 ```
 
 ## Slack usage
@@ -159,30 +162,37 @@ ticket (from the web or Slack) DMs the reporter and assignees.
 ```
 pnpm dev          # next dev
 pnpm build        # prisma generate + next build
-pnpm test         # vitest (unit + integration against tmp SQLite)
+pnpm test         # vitest (unit + integration, each spec file gets a throwaway Postgres DB)
 pnpm typecheck    # tsc --noEmit
 pnpm lint         # next lint
-pnpm db:push      # apply schema to SQLite
+pnpm db:push      # apply schema to Postgres (DATABASE_URL)
 pnpm db:seed      # idempotent demo seed
 pnpm db:reset     # wipe + reseed
 ```
 
 ## Tests
 
-`vitest` runs 55 tests:
+`vitest` runs 79 tests. Integration specs each get their own throwaway
+Postgres database (created and dropped per spec file — see
+`src/lib/test-db.ts`), so a reachable Postgres server is required: point
+`DATABASE_URL`/`TEST_DATABASE_URL` at one (the docker-compose `db` service
+works — `docker compose up db -d`).
 
 - `src/lib/fractional-index.spec.ts` — 8 unit tests for the rank helper
-- `src/lib/tickets.spec.ts` — 7 integration tests against a hermetic SQLite
-  DB created via `prisma db push`. Covers creation, transition, WIP-limit
-  rejection, admin bypass, version conflict (TechSpec §18.2's required
-  scenarios for the ticket flow), and activity-log emission.
+- `src/lib/tickets.spec.ts` — 7 integration tests. Covers creation,
+  transition, WIP-limit rejection, admin bypass, version conflict
+  (TechSpec §18.2's required scenarios for the ticket flow), and
+  activity-log emission.
 - `src/lib/periods.spec.ts` — 12 unit tests: period keys across timezones,
   ISO-week year boundaries, shifting, validation.
 - `src/lib/slack.spec.ts` — 17 unit tests: HMAC signature verification
   (tamper, replay window, missing headers) and the `/flowboard` grammar.
-- `src/lib/goals-reminders.spec.ts` — 11 integration tests: goal CRUD +
+- `src/lib/goals-reminders.spec.ts` — 13 integration tests: goal CRUD +
   linked-ticket progress, reminder deliver/snooze/recurrence/reschedule,
-  due-date scan dedupe.
+  due-date scan dedupe, stale-ticket (7-day) scan lifecycle.
+- `src/lib/bootstrap.spec.ts`, `oauth.spec.ts`, `slack-channel.spec.ts` —
+  first-boot provisioning, OAuth sign-in/sign-up, and the Slack
+  channel-driven ticket flow (message → ticket, thread status moves).
 
 ## Deployment
 
@@ -199,6 +209,7 @@ zero secrets to configure, the built-in `GITHUB_TOKEN` is enough.
 | --- | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | every PR + push to `main` | lint, typecheck, vitest, `pnpm build`, **Docker build + container smoke test** (no push) |
 | Release | `.github/workflows/release.yml` | push to `main`, semver tag `v*.*.*`, manual dispatch | runs the test gate, then builds a multi-arch (`linux/amd64`,`linux/arm64`) image and pushes to `ghcr.io/<owner>/flow-board` with provenance + SBOM. Tags create a GitHub Release with auto-generated notes. |
+| Deploy to ECS | `.github/workflows/deploy-ecs.yml` | push to `main`, manual dispatch | runs the test gate, builds + pushes to ECR, rolls out a new ECS Fargate task revision via GitHub OIDC (no AWS keys stored). Requires the one-time [Terraform setup](./DEPLOYMENT.md#deploying-to-aws-ecs-fargate) — see `infra/README.md`. |
 
 Image tags follow TechSpec §23.6:
 
@@ -209,35 +220,40 @@ Image tags follow TechSpec §23.6:
 
 ### Run anywhere `docker run` runs
 
+Needs a reachable Postgres 16 server — either your own, or use the supplied
+compose file which bundles one:
+
+```bash
+docker compose up -d
+```
+
+Or `docker run` against your own Postgres instance:
+
 ```bash
 docker run -d \
   --name flowboard \
   -p 3000:3000 \
-  -v flowboard-data:/data \
+  -e DATABASE_URL="postgresql://user:pass@your-postgres-host:5432/flowboard" \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   ghcr.io/wankhede04/flow-board:latest
-```
-
-Or with the supplied compose file:
-
-```bash
-docker compose up -d
 ```
 
 The image:
 
 - runs as a non-root `nextjs` user (uid 1001)
 - listens on `:3000` and exposes `/api/healthz`, `/api/readyz`
-- persists data at `/data/flowboard.db` (SQLite); mount a volume there
 - runs `prisma db push` on every boot — idempotent and forward-compatible
   per TechSpec §23.8
 - has a Docker `HEALTHCHECK` that hits `/api/healthz`
+
+For a managed, horizontally scalable deployment (RDS + ECS Fargate instead
+of a single box), see **[Deploying to AWS ECS Fargate](./DEPLOYMENT.md#deploying-to-aws-ecs-fargate)** in `DEPLOYMENT.md`.
 
 ### Required environment
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Defaults to `file:/data/flowboard.db`. Switch to a Postgres URL and update `provider` in `prisma/schema.prisma` for multi-replica deploys. |
+| `DATABASE_URL` | **Required**, no default — Postgres 16 connection string. `docker-compose.yml`'s bundled `db` service provides one automatically. |
 | `JWT_SECRET` | Required in production. Use `openssl rand -hex 32`. |
 | `APP_BASE_URL` | Public URL of the deployment — used in Slack replies, notification links, and OAuth redirect URIs. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables "Continue with Google" (optional). Redirect URI: `$APP_BASE_URL/api/v1/auth/oauth/google/callback`. |

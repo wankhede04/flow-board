@@ -12,6 +12,18 @@ concurrency:
 jobs:
   lint-typecheck-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +51,7 @@ jobs:
       - name: Test
         run: pnpm test
         env:
-          DATABASE_URL: file:./test.db
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
 
   build:
     runs-on: ubuntu-latest
@@ -62,12 +74,25 @@ jobs:
       - name: Build
         run: pnpm build
         env:
-          DATABASE_URL: file:./build.db
+          # Never connected to during build — prisma generate only parses it.
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
 
   docker:
     name: Docker build (no push)
     runs-on: ubuntu-latest
     needs: lint-typecheck-test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -88,10 +113,13 @@ jobs:
 
       - name: Smoke test runtime container
         run: |
+          # --network host: the postgres service container is bound to the
+          # runner's own localhost, so the app container joins that network
+          # directly to reach it (simplest option for an ephemeral CI smoke test).
           docker run --rm -d \
-            -e DATABASE_URL="file:/data/flowboard.db" \
+            --network host \
+            -e DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres" \
             -e JWT_SECRET="ci-secret" \
-            -p 3000:3000 \
             --name fb-ci flowboard:ci
           # wait for healthz to come up (max 60s)
           for i in $(seq 1 30); do

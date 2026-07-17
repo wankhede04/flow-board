@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored —
+# never commit it (even though nothing here is secret, keep the habit).
+
+aws_region  = "us-east-1"
+domain_name = "flowboard.abhijeetfoundation.org"
+
+# Optional but recommended — CloudWatch alarms email you here.
+alert_email = "you@abhijeetfoundation.org"
+
+# Optional — public OAuth client IDs (not secrets). Leave blank to launch
+# without sign-in configured and fill in later; re-running `terraform
+# apply` updates them.
+# google_client_id = "xxxxx.apps.googleusercontent.com"
+# github_client_id = "Iv1.xxxxxxxxxxxxxxxx"
+
+# Defaults below match "small internal team" sizing — uncomment to change.
+# task_cpu          = 256
+# task_memory       = 512
+# desired_count     = 1
+# db_instance_class = "db.t4g.micro"

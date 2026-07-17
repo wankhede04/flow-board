@@ -82,6 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/wankhede04/flow-board/main/docker-c
 # One-time: write env file (NOT committed anywhere)
 cat > .env <<EOF
 JWT_SECRET=$(openssl rand -hex 32)
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
 FLOWBOARD_IMAGE=ghcr.io/wankhede04/flow-board:0.1.0
 FLOWBOARD_PORT=3000
 APP_BASE_URL=https://flowboard.example.com
@@ -111,12 +112,16 @@ flowboard.example.com {
 
 ### 4b. Plain `docker run` (smaller setup)
 
+Requires a Postgres 16 server reachable from the container — e.g. a small
+managed instance, or a second `docker run postgres:16-alpine` on the same
+host/network.
+
 ```bash
 docker run -d \
   --name flowboard \
   --restart unless-stopped \
   -p 3000:3000 \
-  -v flowboard-data:/data \
+  -e DATABASE_URL="postgresql://user:pass@your-postgres-host:5432/flowboard" \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   ghcr.io/wankhede04/flow-board:0.1.0
 ```
@@ -131,8 +136,7 @@ kind: Deployment
 metadata:
   name: flowboard
 spec:
-  replicas: 1                          # SQLite — single writer only
-  strategy: { type: Recreate }         # rolling-update conflicts with the volume
+  replicas: 2                          # Postgres — safe to run multiple replicas
   selector: { matchLabels: { app: flowboard } }
   template:
     metadata: { labels: { app: flowboard } }
@@ -143,18 +147,16 @@ spec:
           ports: [{ containerPort: 3000 }]
           env:
             - { name: JWT_SECRET, valueFrom: { secretKeyRef: { name: flowboard, key: jwt-secret } } }
-            - { name: DATABASE_URL, value: file:/data/flowboard.db }
-          volumeMounts:
-            - { name: data, mountPath: /data }
+            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: flowboard, key: database-url } } }
+            # Multi-replica: only one pod should run the in-process scheduler,
+            # or drive reminders/due-date nudges from external cron instead.
+            - { name: ENABLE_SCHEDULER, value: "false" }
           readinessProbe:
             httpGet: { path: /api/readyz, port: 3000 }
             initialDelaySeconds: 5
           livenessProbe:
             httpGet: { path: /api/healthz, port: 3000 }
             initialDelaySeconds: 15
-      volumes:
-        - name: data
-          persistentVolumeClaim: { claimName: flowboard-data }
 ---
 apiVersion: v1
 kind: Service
@@ -164,14 +166,17 @@ spec:
   ports: [{ port: 80, targetPort: 3000 }]
 ```
 
-For multi-replica deployments, switch the database to Postgres
-(see Step 6).
+With `ENABLE_SCHEDULER=false`, drive background jobs from outside the
+cluster (a `CronJob` hitting `POST /api/v1/jobs/tick` every minute with
+`Authorization: Bearer $CRON_SECRET` works well).
 
-### 4d. AWS ECS / Fargate
+### 4d. AWS ECS Fargate (Terraform)
 
-Push the image to ECR (or pull directly from GHCR with an ECR pull-through
-cache), then create a Fargate service with the same env vars and a
-mounted EFS volume at `/data`. Health check path: `/api/healthz`.
+For a fully managed AWS deployment — RDS Postgres, ECS Fargate, ALB with
+ACM TLS, CloudWatch logging/alarms, and a GitHub Actions OIDC deploy
+pipeline (no long-lived AWS keys) — see
+**[Deploying to AWS ECS Fargate](#deploying-to-aws-ecs-fargate)** below.
+This is the recommended path once you've outgrown a single VM.
 
 ---
 
@@ -337,20 +342,27 @@ logs will show schema application.
 
 ---
 
-## Step 8 — (Optional) Switch to Postgres
+## Step 8 — (Optional) Scaling to multiple replicas
 
-SQLite is fine for a single-host deploy. For multi-replica, HA, or
-backup-friendly storage, switch to Postgres:
+FlowBoard runs on Postgres by default, so multiple replicas behind a load
+balancer are safe for request handling. One thing needs attention when you
+scale past a single replica:
 
-1. Edit `prisma/schema.prisma`: change `provider = "sqlite"` to
-   `provider = "postgresql"`.
-2. Commit, tag a new release, and let the pipeline rebuild the image.
-3. On the host, set `DATABASE_URL=postgresql://user:pass@host:5432/flowboard`
-   and remove the `flowboard-data` volume (the entrypoint runs `prisma
-   db push` on first boot and creates the schema).
-4. When scaling past one replica, also set `ENABLE_SCHEDULER=false` on all
-   replicas and drive the jobs tick from a single external cron (Step 6) so
-   reminders aren't scanned concurrently.
+1. Set `ENABLE_SCHEDULER=false` on **every** replica — the in-process
+   60-second scheduler is designed for exactly one running instance;
+   leaving it on with 2+ replicas double- (or triple-) sends every
+   reminder and due-date nudge.
+2. Drive the jobs tick from a single external source instead — a cron job,
+   a Kubernetes `CronJob`, or (on AWS) an EventBridge Scheduler rule —
+   hitting `POST /api/v1/jobs/tick` with `Authorization: Bearer
+   $CRON_SECRET` once a minute. The tick is idempotent, so occasional
+   overlapping calls are harmless; concurrent *replicas* independently
+   ticking is what causes duplicates.
+3. Consider moving Postgres to a managed instance (RDS, Cloud SQL, etc.)
+   sized for your replica count if you're not already using one.
+
+The [ECS Fargate path](#deploying-to-aws-ecs-fargate) below wires this up
+automatically (EventBridge Scheduler + `ENABLE_SCHEDULER=false`).
 
 ---
 
@@ -376,15 +388,59 @@ work transparently. Destructive migrations require manual planning.
 
 ## Step 10 — Backups
 
-SQLite lives in the `flowboard-data` volume at `/data/flowboard.db`. To
-back up:
+If you're using docker-compose's bundled `db` service, back it up with
+`pg_dump`:
 
 ```bash
-docker compose exec flowboard sqlite3 /data/flowboard.db ".backup /data/backup.db"
-docker cp flowboard:/data/backup.db ./flowboard-$(date +%F).db
+docker compose exec db pg_dump -U flowboard flowboard | gzip > flowboard-$(date +%F).sql.gz
 ```
 
-Schedule via cron and ship the file off-host.
+Restore into a fresh instance with:
+
+```bash
+gunzip -c flowboard-2026-01-01.sql.gz | docker compose exec -T db psql -U flowboard flowboard
+```
+
+Schedule the backup command via cron and ship the file off-host. If you're
+on RDS (the ECS/Terraform path), use
+[automated RDS snapshots](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html)
+instead — enabled by default in the Terraform config.
+
+---
+
+## Deploying to AWS ECS Fargate
+
+A managed, horizontally-scalable alternative to the single-VM
+docker-compose deployment above — recommended once you've outgrown a
+single box. Provisions RDS Postgres, ECS Fargate (ARM64, cost-optimized),
+an ALB with an ACM certificate, CloudWatch logging + alarms, and drives
+background jobs (reminders, due-date/stale scans) via EventBridge
+Scheduler hitting `/api/v1/jobs/tick` instead of the in-process scheduler
+— so it's safe to scale past one task.
+
+Everything is Terraform, checked into [`infra/`](./infra/). Full
+walkthrough: **[`infra/README.md`](./infra/README.md)**. Summary:
+
+1. `cd infra && cp terraform.tfvars.example terraform.tfvars` — set at
+   least `domain_name`.
+2. `terraform init && terraform validate && terraform plan -out=tfplan && terraform apply tfplan`.
+   Apply pauses waiting for ACM certificate validation — add the CNAME
+   record it outputs at your DNS provider while it waits.
+3. Point your domain's DNS at the ALB (`terraform output alb_dns_name`).
+4. Fill in the Slack/Google/GitHub secrets via `aws secretsmanager
+   put-secret-value` (exact commands with ARNs come from `terraform
+   output`; `infra/README.md` has the full list).
+5. Set five GitHub Actions repository **variables** (not secrets — none of
+   these are credentials) from `terraform output`: `AWS_REGION`,
+   `AWS_ROLE_ARN`, `ECR_REPOSITORY`, `ECS_CLUSTER`, `ECS_SERVICE`, plus
+   `ECS_TASK_DEFINITION_FAMILY` (your `project_name`, default `flowboard`).
+6. Push to `main` — `.github/workflows/deploy-ecs.yml` builds, pushes to
+   ECR, and rolls out the new task definition automatically, authenticating
+   via GitHub OIDC (no AWS keys stored in the repo).
+
+This is a separate pipeline from `release.yml` (GHCR publishing) — both run
+independently on every push to `main`; use whichever deployment target(s)
+you actually run.
 
 ---
 
@@ -401,8 +457,8 @@ docker compose up -d
 Image tags on GHCR are immutable, so the previous version is always
 pullable. No image rebuild required.
 
-For schema-incompatible rollbacks, restore the SQLite backup from
-Step 8 before downgrading.
+For schema-incompatible rollbacks, restore the Postgres backup from
+Step 10 before downgrading.
 
 ---
 
@@ -411,7 +467,6 @@ Step 8 before downgrading.
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `denied: permission_denied` on `docker pull` | GHCR package is private | Make package public OR `docker login ghcr.io -u <user> -p <PAT>` (PAT needs `read:packages`) |
-| Container restarts in a loop, logs `prisma db push` errors | DB volume mounted from a previous incompatible schema | Restore from backup, or wipe `flowboard-data` if non-prod |
+| Container restarts in a loop, logs `prisma db push` errors | DB has a previous incompatible schema, or `DATABASE_URL` is wrong/unreachable | Check `DATABASE_URL`; restore from backup, or wipe the `flowboard-db-data` volume if non-prod |
 | 502 / connection refused at the proxy | Container booting; `prisma db push` runs first | Wait ~10s; check `docker logs flowboard` for `Ready in` line |
-| "Database is locked" under load | SQLite single-writer limit | Switch to Postgres (Step 6) |
 | Image pulls succeed but `cosign verify` fails | Verifying with the wrong identity | The image is signed via GitHub OIDC; verify with `cosign verify --certificate-identity-regexp 'https://github.com/wankhede04/flow-board/.github/workflows/release.yml@.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/wankhede04/flow-board:<tag>` |
