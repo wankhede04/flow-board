@@ -3,40 +3,31 @@
  * required scenarios: happy path, WIP limit (409), version conflict (409),
  * permission paths covered separately in permissions.spec.
  *
- * Uses a temporary SQLite DB created via `prisma db push` against a tmp
- * file so the suite is hermetic.
+ * Runs against a throwaway Postgres database created per spec file — see
+ * ./test-db.ts.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
 import { generateNKeysBetween } from 'fractional-indexing';
+import { createTestDb, type TestDb } from './test-db';
 
+let testDb: TestDb;
 let prisma: PrismaClient;
-let tmpDir: string;
 let dbUrl: string;
 
 const id = (prefix: string) => `${prefix}_${ulid()}`;
 
-beforeAll(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), 'fb-test-'));
-  dbUrl = `file:${path.join(tmpDir, 'test.db')}`;
+beforeAll(async () => {
+  testDb = await createTestDb('tickets');
+  prisma = testDb.prisma;
+  dbUrl = testDb.dbUrl;
   process.env.DATABASE_URL = dbUrl;
-  execSync('npx prisma db push --skip-generate', {
-    env: { ...process.env, DATABASE_URL: dbUrl },
-    cwd: process.cwd(),
-    stdio: 'pipe',
-  });
-  prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  rmSync(tmpDir, { recursive: true, force: true });
+  await testDb.teardown();
 });
 
 interface Fixture {

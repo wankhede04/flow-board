@@ -1,6 +1,6 @@
 /**
  * Integration tests for the goals, reminders and background-jobs services,
- * against a hermetic SQLite DB (same pattern as tickets.spec.ts).
+ * against a throwaway Postgres database (see ./test-db.ts).
  *
  * Covers: goal CRUD + linked-ticket progress, reminder lifecycle
  * (deliver → sent, recurrence re-arm, snooze, manual reschedule) and the
@@ -8,35 +8,26 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
+import { createTestDb, type TestDb } from './test-db';
 
+let testDb: TestDb;
 let prisma: PrismaClient;
-let tmpDir: string;
 let dbUrl: string;
 
 const id = (prefix: string) => `${prefix}_${ulid()}`;
 
-beforeAll(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), 'fb-grj-test-'));
-  dbUrl = `file:${path.join(tmpDir, 'test.db')}`;
-  process.env.DATABASE_URL = dbUrl;
+beforeAll(async () => {
   delete process.env.SLACK_BOT_TOKEN; // keep Slack outbound a guaranteed no-op
-  execSync('npx prisma db push --skip-generate', {
-    env: { ...process.env, DATABASE_URL: dbUrl },
-    cwd: process.cwd(),
-    stdio: 'pipe',
-  });
-  prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+  testDb = await createTestDb('goals_reminders');
+  prisma = testDb.prisma;
+  dbUrl = testDb.dbUrl;
+  process.env.DATABASE_URL = dbUrl;
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  rmSync(tmpDir, { recursive: true, force: true });
+  await testDb.teardown();
 });
 
 beforeEach(async () => {

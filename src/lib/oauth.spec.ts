@@ -1,42 +1,34 @@
 /**
  * Tests for social sign-in: authorize-URL construction, the email-domain
- * allowlist, and find-or-create provisioning against a hermetic SQLite DB.
- * Network-touching pieces (code exchange, profile fetch) are exercised via
- * the live server check in the PR verification, not mocked here.
+ * allowlist, and find-or-create provisioning against a throwaway Postgres
+ * database (see ./test-db.ts). Network-touching pieces (code exchange,
+ * profile fetch) are exercised via the live server check in the PR
+ * verification, not mocked here.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
+import { createTestDb, type TestDb } from './test-db';
 
+let testDb: TestDb;
 let prisma: PrismaClient;
-let tmpDir: string;
 let dbUrl: string;
 
-beforeAll(() => {
-  tmpDir = mkdtempSync(path.join(os.tmpdir(), 'fb-oauth-test-'));
-  dbUrl = `file:${path.join(tmpDir, 'test.db')}`;
-  process.env.DATABASE_URL = dbUrl;
+beforeAll(async () => {
   process.env.APP_BASE_URL = 'https://flow.example.com';
   process.env.GOOGLE_CLIENT_ID = 'google-client-id';
   process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
   process.env.GITHUB_CLIENT_ID = 'github-client-id';
   process.env.GITHUB_CLIENT_SECRET = 'github-secret';
-  execSync('npx prisma db push --skip-generate', {
-    env: { ...process.env, DATABASE_URL: dbUrl },
-    cwd: process.cwd(),
-    stdio: 'pipe',
-  });
-  prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+  testDb = await createTestDb('oauth');
+  prisma = testDb.prisma;
+  dbUrl = testDb.dbUrl;
+  process.env.DATABASE_URL = dbUrl;
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  rmSync(tmpDir, { recursive: true, force: true });
+  await testDb.teardown();
 });
 
 beforeEach(async () => {

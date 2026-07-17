@@ -3,7 +3,7 @@
  *
  * This is the hot path; we issue one query per related set rather than
  * an N+1 ride, but skip the LATERAL trickery suggested in the spec so the
- * code stays readable on Prisma + SQLite.
+ * code stays readable via plain Prisma queries.
  */
 
 import { prisma } from './db';

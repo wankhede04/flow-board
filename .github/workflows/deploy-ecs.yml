@@ -1,0 +1,127 @@
+name: Deploy to ECS
+
+# Builds and pushes to ECR, then rolls out a new ECS Fargate task
+# definition revision. Independent of release.yml (GHCR/Docker Hub-style
+# publishing) — this is the AWS-specific deploy path, see infra/ (Terraform)
+# and infra/README.md for the one-time setup.
+#
+# Auth: GitHub OIDC — no long-lived AWS access keys stored in this repo.
+# ECS's deployment circuit breaker (infra/ecs.tf) auto-rolls-back if the new
+# revision never reaches a healthy steady state, so a bad deploy self-heals
+# without needing a manual revert here.
+#
+# Required repository configuration (Settings → Secrets and variables →
+# Actions), all populated from `terraform output` after the one-time infra
+# setup — see infra/README.md:
+#   Variables: AWS_REGION, AWS_ROLE_ARN, ECR_REPOSITORY, ECS_CLUSTER,
+#              ECS_SERVICE, ECS_TASK_DEFINITION_FAMILY
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC
+
+concurrency:
+  group: deploy-ecs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test gate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+  deploy:
+    name: Build, push, deploy
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tag
+        id: tag
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push (linux/amd64 + linux/arm64 — ECS runs arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ vars.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
+            ${{ vars.ECR_REPOSITORY }}:latest
+          cache-from: type=gha,scope=flowboard-ecs
+          cache-to: type=gha,mode=max,scope=flowboard-ecs
+
+      - name: Fetch current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_TASK_DEFINITION_FAMILY }}" \
+            --query 'taskDefinition' \
+            > task-definition.json
+
+      - name: Render new task definition with the freshly-built image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: flowboard
+          image: ${{ vars.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
+
+      - name: Deploy to ECS (registers a new revision, waits for stability)
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ vars.ECS_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          wait-for-service-stability: true
